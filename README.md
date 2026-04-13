@@ -186,12 +186,5 @@ Install Sysmon: https://docs.microsoft.com/sysinternals/downloads/sysmon
   process wrote the registry key (needs Sysmon Event ID 13 for that)
 - HKLM keys require Administrator rights
 - WOW64 (32-bit registry) is read with KEY_WOW64_64KEY by default
-
----
-
-## LinkedIn Post Note
-
-When posting: be transparent about the 4688 limitation — that's the kind
-of honest technical detail that makes posts credible. The tool is designed
-to be genuinely useful for threat hunters even with just the built-in
-Windows audit log.
+ 
+ 
