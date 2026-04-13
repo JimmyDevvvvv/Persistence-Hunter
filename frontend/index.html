@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RegHunt — Registry Persistence Hunter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap"
+    rel="stylesheet">
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #0d0f14;
+      --surface: #141720;
+      --surface2: #1c2030;
+      --surface3: #242840;
+      --border: rgba(255, 255, 255, 0.06);
+      --border2: rgba(255, 255, 255, 0.11);
+      --text: #e2e4f0;
+      --text2: #8891b0;
+      --text3: #4a5270;
+      --red: #ff4757;
+      --red-dim: rgba(255, 71, 87, 0.13);
+      --amber: #ffaa00;
+      --amber-dim: rgba(255, 170, 0, 0.11);
+      --green: #00d4a0;
+      --green-dim: rgba(0, 212, 160, 0.09);
+      --blue: #4d9eff;
+      --blue-dim: rgba(77, 158, 255, 0.09);
+      --purple: #a78bfa;
+      --mono: 'JetBrains Mono', monospace;
+      --display: 'Syne', sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── HEADER ─────────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      height: 52px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: var(--red-dim);
+      border: 1px solid rgba(255, 71, 87, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .logo-text {
+      font-family: var(--display);
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+    }
+
+    .logo-sep {
+      color: var(--text3);
+      margin: 0 6px;
+    }
+
+    .logo-sub {
+      font-size: 11px;
+      color: var(--text3);
+      font-family: var(--display);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .hdr-stat {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid;
+    }
+
+    .hdr-stat-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .hdr-stat.red {
+      color: var(--red);
+      border-color: rgba(255, 71, 87, 0.2);
+      background: var(--red-dim);
+    }
+
+    .hdr-stat.amber {
+      color: var(--amber);
+      border-color: rgba(255, 170, 0, 0.2);
+      background: var(--amber-dim);
+    }
+
+    .hdr-stat.green {
+      color: var(--green);
+      border-color: rgba(0, 212, 160, 0.2);
+      background: var(--green-dim);
+    }
+
+    .pulse {
+      animation: pulse 2.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: 0.35
+      }
+    }
+
+    .scan-btn {
+      padding: 6px 14px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--red-dim);
+      color: var(--red);
+      border: 1px solid rgba(255, 71, 87, 0.3);
+      cursor: pointer;
+      font-family: var(--mono);
+      transition: all 0.15s;
+      letter-spacing: 0.04em;
+    }
+
+    .scan-btn:hover {
+      background: rgba(255, 71, 87, 0.22);
+    }
+
+    .scan-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* ── LAYOUT ──────────────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 290px 1fr;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── LEFT PANEL ──────────────────────────────────────── */
+    .left {
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .filter-bar {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+
+    .filt {
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      cursor: pointer;
+      border: 1px solid var(--border2);
+      color: var(--text3);
+      background: transparent;
+      font-family: var(--mono);
+      transition: all 0.12s;
+    }
+
+    .filt:hover {
+      color: var(--text2);
+      border-color: var(--text3);
+    }
+
+    .filt.on {
+      background: var(--red-dim);
+      border-color: rgba(255, 71, 87, 0.3);
+      color: var(--red);
+    }
+
+    .entry-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .entry {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.12s;
+      position: relative;
+    }
+
+    .entry:hover {
+      background: var(--surface2);
+    }
+
+    .entry.active {
+      background: var(--surface2);
+      border-left: 2px solid var(--red);
+      padding-left: 12px;
+    }
+
+    .entry-name {
+      font-weight: 500;
+      font-size: 12px;
+      color: var(--text);
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .entry-hive {
+      font-size: 10px;
+      color: var(--text3);
+      margin-bottom: 5px;
+    }
+
+    .entry-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sev {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .sev-critical {
+      background: rgba(255, 71, 87, 0.18);
+      color: var(--red);
+    }
+
+    .sev-high {
+      background: rgba(255, 170, 0, 0.14);
+      color: var(--amber);
+    }
+
+    .sev-medium {
+      background: rgba(77, 158, 255, 0.12);
+      color: var(--blue);
+    }
+
+    .sev-low {
+      background: var(--green-dim);
+      color: var(--green);
+    }
+
+    .entry-time {
+      font-size: 10px;
+      color: var(--text3);
+    }
+
+    /* ── MAIN ────────────────────────────────────────────── */
+    .main {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .tab {
+      padding: 10px 18px;
+      font-size: 11px;
+      color: var(--text3);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.12s;
+      letter-spacing: 0.04em;
+      font-weight: 500;
+    }
+
+    .tab:hover {
+      color: var(--text2);
+    }
+
+    .tab.on {
+      color: var(--text);
+      border-bottom-color: var(--red);
+    }
+
+    /* ── CHAIN VIEW ──────────────────────────────────────── */
+    .chain-view {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+
+    .chain-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .chain-header-icon {
+      font-size: 18px;
+    }
+
+    .chain-header-title {
+      font-family: var(--display);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .chain-header-sub {
+      font-size: 10px;
+      color: var(--text3);
+      margin-top: 2px;
+    }
+
+    .chain {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .cnode-row {
+      display: flex;
+      gap: 0;
+    }
+
+    .cnode-spine {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 36px;
+      flex-shrink: 0;
+    }
+
+    .spine-line {
+      width: 1px;
+      background: var(--border2);
+      flex: 1;
+      min-height: 16px;
+    }
+
+    .spine-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border2);
+      background: var(--bg);
+      margin: 5px 0;
+      flex-shrink: 0;
+    }
+
+    .spine-dot.d-red {
+      border-color: var(--red);
+      background: var(--red-dim);
+    }
+
+    .spine-dot.d-amber {
+      border-color: var(--amber);
+      background: var(--amber-dim);
+    }
+
+    .spine-dot.d-blue {
+      border-color: var(--blue);
+      background: var(--blue-dim);
+    }
+
+    .spine-dot.d-gray {
+      border-color: var(--text3);
+      background: var(--bg);
+    }
+
+    .cnode {
+      flex: 1;
+      margin-bottom: 3px;
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 11px 14px;
+      background: var(--surface2);
+      cursor: pointer;
+      transition: background 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cnode::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+    }
+
+    .cnode.t-system ::before,
+    .cnode.t-system::before {
+      background: var(--text3);
+    }
+
+    .cnode.t-normal ::before,
+    .cnode.t-normal::before {
+      background: var(--blue);
+    }
+
+    .cnode.t-suspicious::before {
+      background: var(--amber);
+    }
+
+    .cnode.t-malicious ::before {
+      background: var(--red);
+    }
+
+    .cnode:hover {
+      background: var(--surface3);
+    }
+
+    .cnode.is-writer {
+      background: rgba(255, 71, 87, 0.07);
+      border-color: rgba(255, 71, 87, 0.2);
+    }
+
+    .cn-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 5px;
+    }
+
+    .cn-name {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .cn-pid {
+      font-size: 10px;
+      color: var(--text3);
+    }
+
+    .cn-meta {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 0;
+    }
+
+    .cn-meta-item {
+      font-size: 11px;
+      color: var(--text2);
+    }
+
+    .cn-meta-label {
+      color: var(--text3);
+    }
+
+    .cn-action {
+      margin-top: 8px;
+      padding: 5px 9px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ca-reg {
+      background: rgba(255, 71, 87, 0.09);
+      border: 1px solid rgba(255, 71, 87, 0.22);
+      color: var(--red);
+    }
+
+    .ca-exec {
+      background: rgba(255, 170, 0, 0.08);
+      border: 1px solid rgba(255, 170, 0, 0.2);
+      color: var(--amber);
+    }
+
+    .cn-cmd {
+      margin-top: 6px;
+      padding: 5px 8px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 10px;
+      color: var(--text2);
+      word-break: break-all;
+      line-height: 1.55;
+    }
+
+    /* ── EMPTY / LOADING ─────────────────────────────────── */
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 10px;
+      color: var(--text3);
+    }
+
+    .placeholder-icon {
+      font-size: 36px;
+      opacity: 0.25;
+    }
+
+    .placeholder-text {
+      font-size: 12px;
+    }
+
+    /* ── DETAIL STRIP ─────────────────────────────────────── */
+    .detail-strip {
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      padding: 12px 20px;
+      flex-shrink: 0;
+    }
+
+    .detail-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--text3);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .di-label {
+      font-size: 10px;
+      color: var(--text3);
+      margin-bottom: 3px;
+    }
+
+    .di-val {
+      font-size: 11px;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .di-val.red {
+      color: var(--red);
+    }
+
+    .di-val.amber {
+      color: var(--amber);
+    }
+
+    .di-val.green {
+      color: var(--green);
+    }
+
+    /* ── RAW TABLE ───────────────────────────────────────── */
+    .raw-view {
+      flex: 1;
+      overflow: auto;
+      padding: 20px;
+    }
+
+    .raw-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .raw-table th {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--text3);
+      text-transform: uppercase;
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border2);
+    }
+
+    .raw-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      vertical-align: top;
+    }
+
+    .raw-table tr:hover td {
+      background: var(--surface2);
+      cursor: pointer;
+    }
+
+    .raw-table .td-val {
+      max-width: 340px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text2);
+    }
+
+    /* ── TIMELINE ─────────────────────────────────────────── */
+    .tl-view {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+
+    .tl-track {
+      position: relative;
+      padding-left: 24px;
+    }
+
+    .tl-line {
+      position: absolute;
+      left: 8px;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: var(--border2);
+    }
+
+    .tl-item {
+      position: relative;
+      margin-bottom: 14px;
+      cursor: pointer;
+    }
+
+    .tl-dot {
+      position: absolute;
+      left: -20px;
+      top: 5px;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      border: 1.5px solid;
+      background: var(--bg);
+    }
+
+    .tl-time {
+      font-size: 10px;
+      color: var(--text3);
+      margin-bottom: 3px;
+    }
+
+    .tl-card {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 10px 12px;
+      transition: background 0.12s;
+    }
+
+    .tl-item:hover .tl-card {
+      background: var(--surface3);
+    }
+
+    .tl-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .tl-name {
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .tl-hive {
+      font-size: 10px;
+      color: var(--text3);
+      margin-bottom: 3px;
+    }
+
+    .tl-val {
+      font-size: 11px;
+      color: var(--text2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── SCROLLBARS ──────────────────────────────────────── */
+    ::-webkit-scrollbar {
+      width: 3px;
+      height: 3px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border2);
+      border-radius: 2px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="logo">
+      <div class="logo-mark">🔍</div>
+      <span class="logo-text">REGHUNT</span>
+      <span class="logo-sep">·</span>
+      <span class="logo-sub">Registry Persistence Hunter</span>
+    </div>
+    <div class="header-right">
+      <div class="hdr-stat red" id="hdr-critical">
+        <div class="hdr-stat-dot pulse"></div> <span id="cnt-critical">–</span> Critical
+      </div>
+      <div class="hdr-stat amber" id="hdr-high">
+        <div class="hdr-stat-dot"></div> <span id="cnt-high">–</span> High
+      </div>
+      <div class="hdr-stat green" id="hdr-live">
+        <div class="hdr-stat-dot pulse"></div> Live
+      </div>
+      <button class="scan-btn" id="scanBtn" onclick="triggerScan()">↺ Re-Scan</button>
+    </div>
+  </div>
+
+  <!-- LAYOUT -->
+  <div class="layout">
+
+    <!-- LEFT: entry list -->
+    <div class="left">
+      <div class="filter-bar" id="filterBar">
+        <button class="filt on" onclick="setFilter(this,'ALL')">ALL</button>
+        <button class="filt" onclick="setFilter(this,'critical')">Critical</button>
+        <button class="filt" onclick="setFilter(this,'high')">High</button>
+        <button class="filt" onclick="setFilter(this,'HKLM')">HKLM</button>
+        <button class="filt" onclick="setFilter(this,'HKCU')">HKCU</button>
+        <button class="filt" onclick="setFilter(this,'RunOnce')">RunOnce</button>
+      </div>
+      <div class="entry-list" id="entryList">
+        <div class="placeholder">
+          <div class="placeholder-icon">⏳</div>
+          <div class="placeholder-text">Loading entries...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN -->
+    <div class="main">
+
+      <div class="tabs">
+        <div class="tab on" id="tab-chain" onclick="switchTab('chain')">Attack Chain</div>
+        <div class="tab" id="tab-raw" onclick="switchTab('raw')">Raw Entries</div>
+        <div class="tab" id="tab-timeline" onclick="switchTab('timeline')">Timeline</div>
+      </div>
+
+      <!-- CHAIN -->
+      <div id="view-chain" class="chain-view">
+        <div class="placeholder" id="chain-placeholder">
+          <div class="placeholder-icon">🔗</div>
+          <div class="placeholder-text">Select a registry entry to view its attack chain</div>
+        </div>
+        <div id="chain-content" class="hidden">
+          <div class="chain-header">
+            <div class="chain-header-icon" id="ch-icon">💀</div>
+            <div>
+              <div class="chain-header-title" id="ch-title">–</div>
+              <div class="chain-header-sub" id="ch-sub">–</div>
+            </div>
+          </div>
+          <div class="chain" id="chainNodes"></div>
+        </div>
+      </div>
+
+      <!-- RAW -->
+      <div id="view-raw" class="raw-view hidden">
+        <table class="raw-table" id="rawTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Hive</th>
+              <th>Value</th>
+              <th>Severity</th>
+              <th>First Seen</th>
+            </tr>
+          </thead>
+          <tbody id="rawBody"></tbody>
+        </table>
+      </div>
+
+      <!-- TIMELINE -->
+      <div id="view-timeline" class="tl-view hidden">
+        <div class="tl-track">
+          <div class="tl-line"></div>
+          <div id="tlItems"></div>
+        </div>
+      </div>
+
+      <!-- DETAIL STRIP -->
+      <div class="detail-strip hidden" id="detailStrip">
+        <div class="detail-label">Selected Node</div>
+        <div class="detail-grid" id="detailGrid"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://localhost:8000';
+
+    // ── STATE ──────────────────────────────────────────────────
+    let allEntries = [];
+    let activeId = null;
+    let activeTab = 'chain';
+    let filter = 'ALL';
+
+    // ── BOOT ──────────────────────────────────────────────────
+    async function init() {
+      await loadStats();
+      await loadEntries();
+    }
+
+    // ── STATS ──────────────────────────────────────────────────
+    async function loadStats() {
+      try {
+        const s = await api('/api/stats');
+        document.getElementById('cnt-critical').textContent = s.critical;
+        document.getElementById('cnt-high').textContent = s.high;
+      } catch (e) { console.warn('stats error', e); }
+    }
+
+    // ── ENTRIES ────────────────────────────────────────────────
+    async function loadEntries() {
+      try {
+        const data = await api('/api/entries?limit=200');
+        allEntries = data.entries || [];
+        renderEntryList();
+        renderRawTable();
+        renderTimeline();
+        // Auto-select first suspicious entry
+        const first = allEntries.find(e => e.severity === 'critical' || e.severity === 'high') || allEntries[0];
+        if (first) selectEntry(first.id);
+      } catch (e) {
+        document.getElementById('entryList').innerHTML =
+          `<div class="placeholder"><div class="placeholder-icon">⚠️</div><div class="placeholder-text">Cannot reach API at ${API}</div></div>`;
+      }
+    }
+
+    // ── RENDER ENTRY LIST ──────────────────────────────────────
+    function renderEntryList() {
+      const visible = filteredEntries();
+      const html = visible.map(e => `
+    <div class="entry ${activeId === e.id ? 'active' : ''}" onclick="selectEntry(${e.id})">
+      <div class="entry-name">${escHtml(e.name)}</div>
+      <div class="entry-hive">${e.hive}</div>
+      <div class="entry-footer">
+        <span class="sev sev-${e.severity}">${e.severity}</span>
+        <span class="entry-time">${(e.last_seen || '').slice(11, 19)}</span>
+      </div>
+    </div>
+  `).join('');
+      document.getElementById('entryList').innerHTML = html ||
+        `<div class="placeholder" style="padding:24px"><div class="placeholder-text">No entries match this filter</div></div>`;
+    }
+
+    function filteredEntries() {
+      if (filter === 'ALL') return allEntries;
+      if (['critical', 'high', 'medium', 'low'].includes(filter))
+        return allEntries.filter(e => e.severity === filter);
+      return allEntries.filter(e => e.hive.toUpperCase().includes(filter.toUpperCase()));
+    }
+
+    // ── SELECT ENTRY ───────────────────────────────────────────
+    async function selectEntry(id) {
+      activeId = id;
+      renderEntryList();
+      const entry = allEntries.find(e => e.id === id);
+      if (!entry) return;
+
+      // Update chain header
+      const icon = { critical: '💀', high: '⚠️', medium: '🔵', low: '✅' }[entry.severity] || '🔍';
+      document.getElementById('ch-icon').textContent = icon;
+      document.getElementById('ch-title').textContent = entry.name;
+      document.getElementById('ch-sub').textContent = `${entry.hive}  ·  ${entry.value_data?.slice(0, 80)}${entry.value_data?.length > 80 ? '…' : ''}`;
+
+      document.getElementById('chain-placeholder').classList.add('hidden');
+      document.getElementById('chain-content').classList.remove('hidden');
+      document.getElementById('chainNodes').innerHTML =
+        `<div class="placeholder" style="height:80px"><div class="placeholder-text">Building chain...</div></div>`;
+
+      try {
+        const data = await api(`/api/entries/${id}/chain`);
+        renderChain(data.chain || [], entry);
+      } catch (e) {
+        renderChain([], entry);
+      }
+    }
+
+    // ── RENDER CHAIN ───────────────────────────────────────────
+    function renderChain(chain, entry) {
+      const container = document.getElementById('chainNodes');
+
+      if (!chain.length) {
+        container.innerHTML = `<div class="placeholder" style="height:100px"><div class="placeholder-text">No process chain found in event log — re-run with --events after enabling audit policy</div></div>`;
+        return;
+      }
+
+      container.innerHTML = '';
+      chain.forEach((node, i) => {
+        const isFirst = i === 0;
+        const isLast = i === chain.length - 1;
+        const dotCls = { malicious: 'd-red', suspicious: 'd-amber', normal: 'd-blue', system: 'd-gray' }[node.type] || 'd-gray';
+        const isWriter = !!node.action;
+
+        const row = document.createElement('div');
+        row.className = 'cnode-row';
+
+        // Spine
+        const spine = document.createElement('div');
+        spine.className = 'cnode-spine';
+        if (!isFirst) spine.innerHTML += `<div class="spine-line"></div>`;
+        spine.innerHTML += `<div class="spine-dot ${dotCls}"></div>`;
+        if (!isLast) spine.innerHTML += `<div class="spine-line"></div>`;
+
+        // Node
+        const nd = document.createElement('div');
+        nd.className = `cnode t-${node.type} ${isWriter ? 'is-writer' : ''}`;
+        nd.onclick = () => showDetail(node, entry);
+
+        let actionHtml = '';
+        if (node.action) {
+          const cls = node.action.type === 'reg' ? 'ca-reg' : 'ca-exec';
+          const icon = node.action.type === 'reg' ? '⚡' : '▶';
+          actionHtml = `<div class="cn-action ${cls}">${icon} ${escHtml(node.action.label)}</div>`;
+        }
+
+        const cmdHtml = (node.cmdline && node.type !== 'system')
+          ? `<div class="cn-cmd">${escHtml(node.cmdline.slice(0, 160))}${node.cmdline.length > 160 ? '…' : ''}</div>`
+          : '';
+
+        nd.innerHTML = `
+      <div class="cn-head">
+        <span class="cn-name">${escHtml(node.name)}</span>
+        <span class="cn-pid">PID ${node.pid}</span>
+      </div>
+      <div class="cn-meta">
+        <div class="cn-meta-item"><span class="cn-meta-label">user </span>${escHtml(node.user || '–')}</div>
+        ${node.path ? `<div class="cn-meta-item"><span class="cn-meta-label">path </span>${escHtml(node.path.split('\\').slice(-1)[0])}</div>` : ''}
+      </div>
+      ${actionHtml}${cmdHtml}
+    `;
+
+        row.appendChild(spine);
+        row.appendChild(nd);
+        container.appendChild(row);
+      });
+
+      // Auto-show detail of last node
+      showDetail(chain[chain.length - 1], entry);
+    }
+
+    // ── DETAIL STRIP ───────────────────────────────────────────
+    function showDetail(node, entry) {
+      document.getElementById('detailStrip').classList.remove('hidden');
+      const iocClass = (entry.ioc_notes && !entry.ioc_notes.includes('known-good') && !entry.ioc_notes.includes('None')) ? 'red' : 'green';
+      document.getElementById('detailGrid').innerHTML = `
+    <div><div class="di-label">Process</div><div class="di-val">${escHtml(node.name)}</div></div>
+    <div><div class="di-label">PID</div><div class="di-val">${node.pid}</div></div>
+    <div><div class="di-label">Severity</div><div class="di-val ${entry.severity === 'critical' || entry.severity === 'high' ? 'red' : 'green'}">${entry.severity.toUpperCase()}</div></div>
+    <div><div class="di-label">Hive</div><div class="di-val">${escHtml(entry.hive)}</div></div>
+    <div><div class="di-label">IOC Notes</div><div class="di-val ${iocClass}">${escHtml(entry.ioc_notes || '–')}</div></div>
+    <div><div class="di-label">First Seen</div><div class="di-val">${(entry.first_seen || '–').replace('T', ' ').slice(0, 19)}</div></div>
+    <div><div class="di-label">User</div><div class="di-val">${escHtml(node.user || '–')}</div></div>
+    <div><div class="di-label">Hash ID</div><div class="di-val">${(entry.hash_id || '–').slice(0, 12)}…</div></div>
+  `;
+    }
+
+    // ── RAW TABLE ──────────────────────────────────────────────
+    function renderRawTable() {
+      const rows = allEntries.map(e => `
+    <tr onclick="selectEntry(${e.id});switchTab('chain')">
+      <td>${escHtml(e.name)}</td>
+      <td style="color:var(--text3)">${e.hive}</td>
+      <td class="td-val">${escHtml(e.value_data || '')}</td>
+      <td><span class="sev sev-${e.severity}">${e.severity}</span></td>
+      <td style="color:var(--text3)">${(e.first_seen || '').replace('T', ' ').slice(0, 19)}</td>
+    </tr>
+  `).join('');
+      document.getElementById('rawBody').innerHTML = rows;
+    }
+
+    // ── TIMELINE ───────────────────────────────────────────────
+    function renderTimeline() {
+      const sorted = [...allEntries].sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
+      const dotColor = { critical: 'var(--red)', high: 'var(--amber)', medium: 'var(--blue)', low: 'var(--green)' };
+      const html = sorted.map(e => `
+    <div class="tl-item" onclick="selectEntry(${e.id});switchTab('chain')">
+      <div class="tl-dot" style="border-color:${dotColor[e.severity] || 'var(--text3)'}"></div>
+      <div class="tl-time">${(e.last_seen || '').replace('T', ' ').slice(0, 19)}</div>
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <span class="tl-name">${escHtml(e.name)}</span>
+          <span class="sev sev-${e.severity}">${e.severity}</span>
+        </div>
+        <div class="tl-hive">${e.hive}</div>
+        <div class="tl-val">${escHtml((e.value_data || '').slice(0, 90))}</div>
+      </div>
+    </div>
+  `).join('');
+      document.getElementById('tlItems').innerHTML = html;
+    }
+
+    // ── FILTER ─────────────────────────────────────────────────
+    function setFilter(btn, val) {
+      filter = val;
+      document.querySelectorAll('.filt').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      renderEntryList();
+    }
+
+    // ── TABS ───────────────────────────────────────────────────
+    function switchTab(name) {
+      ['chain', 'raw', 'timeline'].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.toggle('on', t === name);
+        document.getElementById(`view-${t}`).classList.toggle('hidden', t !== name);
+      });
+      activeTab = name;
+    }
+
+    // ── SCAN ───────────────────────────────────────────────────
+    async function triggerScan() {
+      const btn = document.getElementById('scanBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Scanning...';
+      try {
+        await api('/api/scan', 'POST', { extended: false });
+        await api('/api/collect-events', 'POST', { hours_back: 24 });
+        // Wait a moment for background tasks to finish
+        setTimeout(async () => {
+          await loadStats();
+          await loadEntries();
+          btn.disabled = false;
+          btn.textContent = '↺ Re-Scan';
+        }, 2500);
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = '↺ Re-Scan';
+        alert('Scan failed — is the API running?');
+      }
+    }
+
+    // ── HELPERS ────────────────────────────────────────────────
+    async function api(path, method = 'GET', body = null) {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const r = await fetch(API + path, opts);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }
+
+    function escHtml(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // ── START ──────────────────────────────────────────────────
+    init();
+  </script>
+</body>
+
+</html>
