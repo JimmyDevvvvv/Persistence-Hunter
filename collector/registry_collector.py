@@ -1,8 +1,10 @@
 """
 registry_collector.py
-Collects registry persistence entries from the 4 main Run keys
-and correlates them with Event ID 4688 process creation logs.
-Requires: Windows, pywin32, python-evtx
+Collects registry persistence entries from the 4 main Run/RunOnce keys,
+recursing into all subkeys so nothing is missed.
+Correlates findings with Event ID 4688 process creation logs.
+
+Requires: Windows, pywin32
 Run as Administrator for HKLM access and Security event log access.
 """
 
@@ -11,6 +13,7 @@ import sqlite3
 import json
 import hashlib
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -28,57 +31,38 @@ except ImportError:
     print("[!] pywin32 not installed. Event log correlation disabled.")
     print("    pip install pywin32")
 
+
 # ── REGISTRY KEYS TO MONITOR ──────────────────────────────
+# Only the 4 core Run/RunOnce keys — subkeys are recursed automatically
 PERSISTENCE_KEYS = [
     {
-        "hive": winreg.HKEY_LOCAL_MACHINE,
+        "hive":      winreg.HKEY_LOCAL_MACHINE,
         "hive_name": "HKLM",
-        "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-        "key_type": "Run"
+        "path":      r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        "key_type":  "Run"
     },
     {
-        "hive": winreg.HKEY_CURRENT_USER,
+        "hive":      winreg.HKEY_CURRENT_USER,
         "hive_name": "HKCU",
-        "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-        "key_type": "Run"
+        "path":      r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        "key_type":  "Run"
     },
     {
-        "hive": winreg.HKEY_LOCAL_MACHINE,
+        "hive":      winreg.HKEY_LOCAL_MACHINE,
         "hive_name": "HKLM",
-        "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
-        "key_type": "RunOnce"
+        "path":      r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
+        "key_type":  "RunOnce"
     },
     {
-        "hive": winreg.HKEY_CURRENT_USER,
+        "hive":      winreg.HKEY_CURRENT_USER,
         "hive_name": "HKCU",
-        "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
-        "key_type": "RunOnce"
+        "path":      r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
+        "key_type":  "RunOnce"
     },
 ]
 
-# Additional persistence locations (extended scan)
-EXTENDED_KEYS = [
-    {
-        "hive": winreg.HKEY_LOCAL_MACHINE,
-        "hive_name": "HKLM",
-        "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices",
-        "key_type": "RunServices"
-    },
-    {
-        "hive": winreg.HKEY_LOCAL_MACHINE,
-        "hive_name": "HKLM",
-        "path": r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon",
-        "key_type": "Winlogon"
-    },
-    {
-        "hive": winreg.HKEY_LOCAL_MACHINE,
-        "hive_name": "HKLM",
-        "path": r"SYSTEM\CurrentControlSet\Services",
-        "key_type": "Services"
-    },
-]
 
-# ── KNOWN LEGITIMATE BINARIES (basic allowlist) ────────────
+# ── KNOWN LEGITIMATE PATHS (allowlist) ────────────────────
 KNOWN_LEGIT_PATHS = [
     r"c:\windows\system32",
     r"c:\windows\syswow64",
@@ -93,19 +77,19 @@ SUSPICIOUS_PATHS = [
     r"c:\temp",
     r"c:\windows\temp",
     r"\appdata\local\temp",
-    r"\appdata\roaming",        # High — common malware persistence location
-    r"\appdata\local",          # High — unless it's a known MS app
+    r"\appdata\roaming",
+    r"\appdata\local",
     r"\downloads",
     r"\desktop",
     r"c:\perflogs",
     r"c:\recycler",
 ]
 
-# AppData\Local paths that are actually legitimate (allowlist exceptions)
+# AppData\Local paths that are actually legitimate
 LEGIT_APPDATA_LOCAL = [
     r"\appdata\local\microsoft\windowsapps",
     r"\appdata\local\microsoft\teams",
-    r"\appdata\local\discord",          # Still suspicious but very common
+    r"\appdata\local\discord",
     r"\appdata\local\grammarly",
 ]
 
@@ -166,20 +150,22 @@ class RegistryCollector:
         conn.commit()
         return conn
 
-    # ── REGISTRY SCANNING ─────────────────────────────────
-    def collect_registry(self, extended: bool = False) -> list[dict]:
-        """Collect all entries from persistence registry keys."""
-        keys = PERSISTENCE_KEYS + (EXTENDED_KEYS if extended else [])
+    # ── REGISTRY SCANNING ──────────────────────────────────
+    def collect_registry(self) -> list[dict]:
+        """Collect all entries from the 4 persistence keys, including all subkeys."""
         results = []
-
-        for key_info in keys:
+        for key_info in PERSISTENCE_KEYS:
             entries = self._read_key(key_info)
             results.extend(entries)
-
         return results
 
     def _read_key(self, key_info: dict) -> list[dict]:
+        """
+        Read all values at this key level, then recurse into every subkey.
+        This ensures we catch anything nested under Run/RunOnce.
+        """
         entries = []
+
         try:
             key = winreg.OpenKey(
                 key_info["hive"],
@@ -194,18 +180,23 @@ class RegistryCollector:
             return []
 
         try:
+            # ── Enumerate all VALUES at this level ────────
             i = 0
             while True:
                 try:
                     name, data, _ = winreg.EnumValue(key, i)
                     full_path = f"{key_info['hive_name']}\\{key_info['path']}"
-                    severity, ioc = self._assess_severity(name, data)
-                    hash_id = hashlib.md5(f"{full_path}|{name}|{data}".encode()).hexdigest()
+                    data_str  = str(data)
+                    severity, ioc = self._assess_severity(name, data_str)
+                    hash_id = hashlib.md5(
+                        f"{full_path}|{name}|{data_str}".encode()
+                    ).hexdigest()
+
                     entry = {
                         "name":       name,
                         "hive":       f"{key_info['hive_name']}\\{key_info['key_type']}",
                         "reg_path":   full_path,
-                        "value_data": data,
+                        "value_data": data_str,
                         "severity":   severity,
                         "ioc_notes":  ioc,
                         "last_seen":  datetime.now().isoformat(),
@@ -216,32 +207,46 @@ class RegistryCollector:
                     i += 1
                 except OSError:
                     break
+
+            # ── Recurse into all SUBKEYS ───────────────────
+            j = 0
+            while True:
+                try:
+                    subkey_name = winreg.EnumKey(key, j)
+                    sub_info = {
+                        **key_info,
+                        "path": f"{key_info['path']}\\{subkey_name}",
+                        # hive, hive_name, key_type all inherited from parent
+                    }
+                    entries.extend(self._read_key(sub_info))
+                    j += 1
+                except OSError:
+                    break
+
         finally:
             winreg.CloseKey(key)
 
         return entries
 
+    # ── SEVERITY ASSESSMENT ────────────────────────────────
     def _assess_severity(self, name: str, value: str) -> tuple[str, str]:
         """
         Heuristic severity assessment.
         Returns (severity, ioc_description).
-
-        Order matters — checks run highest-risk first and return early.
+        Checks run highest-risk first and return early.
         """
         value_lower = value.lower()
         notes = []
 
-        # ── 1. Remote URL in value (always critical) ──────────────
+        # 1. Remote URL in value (always critical)
         if any(proto in value_lower for proto in ["http://", "https://", "ftp://"]):
             notes.append("Remote URL in registry value")
             return "critical", "; ".join(notes)
 
-        # ── 2. LOLBin detection ───────────────────────────────────
+        # 2. LOLBin detection
         for lol in LOLBINS:
             if lol in value_lower:
                 if lol in ("powershell.exe", "cmd.exe"):
-                    # Only flag with suspicious flags — these are common legit entries
-                    # Use full flag names to avoid substring false positives like ----ms-encodedlaunch
                     suspicious_flags = [
                         " -encodedcommand ", " -enc ", " -e ", " -nop ",
                         " -w hidden", " -windowstyle hidden", "bypass",
@@ -250,55 +255,60 @@ class RegistryCollector:
                     if any(f in value_lower for f in suspicious_flags):
                         notes.append(f"LOLBin with suspicious flags: {lol}")
                         return "critical", "; ".join(notes)
-                    # cmd.exe doing a benign delete (like OneDrive cleanup) is low
+                    # Benign cleanup commands (e.g. OneDrive del)
                     if lol == "cmd.exe" and " /q /c del " in value_lower:
                         return "low", "cmd.exe running benign cleanup command"
                 else:
-                    # Other LOLBins in Run keys are always suspicious
                     notes.append(f"LOLBin in Run key: {lol}")
                     return "critical", "; ".join(notes)
 
-        # ── 3. Encoded content (standalone flags) ─────────────────
-        # Check for standalone -enc/-encodedcommand (not inside a longer token like ----ms-encodedlaunch)
-        import re
+        # 3. Standalone encoded command flag
         if re.search(r'(?<![a-z])-enc(?:odedcommand)?\s', value_lower):
             notes.append("Base64-encoded command detected")
             return "critical", "; ".join(notes)
 
-        # ── 4. Known legit paths → low (check before suspicious paths) ──
+        # 4. Known legit system paths → low
         for legit in KNOWN_LEGIT_PATHS:
             if value_lower.startswith(legit):
                 return "low", "Path in known-good location"
 
-        # Also allow %windir% / %systemroot% expansions
+        # Allow %windir% / %systemroot%
         if value_lower.startswith("%windir%") or value_lower.startswith("%systemroot%"):
             return "low", "System environment variable path"
 
-        # ── 5. AppData exceptions — known legit apps ──────────────
+        # 5. Known legit AppData paths → medium
         for legit_appdata in LEGIT_APPDATA_LOCAL:
             if legit_appdata in value_lower:
                 return "medium", f"AppData path — common app location but verify: {legit_appdata}"
 
-        # ── 6. Suspicious path locations ──────────────────────────
+        # 6. Suspicious path locations → high
         for sus_path in SUSPICIOUS_PATHS:
             if sus_path in value_lower:
                 notes.append(f"Executable in suspicious path: {sus_path}")
                 return "high", "; ".join(notes)
 
-        # ── 7. Default: needs review ───────────────────────────────
+        # 7. Default: needs review
         return "medium", "Not in known-good path — manual review recommended"
 
     def _upsert_entry(self, entry: dict):
+        """
+        Insert or update a registry entry.
+        On conflict (same hash_id), update severity, ioc_notes and last_seen
+        so re-scans always reflect the latest assessment.
+        """
         self.conn.execute("""
             INSERT INTO registry_entries
-                (name, hive, reg_path, value_data, severity, ioc_notes, first_seen, last_seen, hash_id)
+                (name, hive, reg_path, value_data, severity, ioc_notes,
+                 first_seen, last_seen, hash_id)
             VALUES
                 (:name, :hive, :reg_path, :value_data, :severity, :ioc_notes,
                  :last_seen, :last_seen, :hash_id)
-            ON CONFLICT(hash_id) DO UPDATE SET last_seen = excluded.last_seen
+            ON CONFLICT(hash_id) DO UPDATE SET
+                severity  = excluded.severity,
+                ioc_notes = excluded.ioc_notes,
+                last_seen = excluded.last_seen
         """, entry)
         self.conn.commit()
-
 
     # ── EVENT LOG COLLECTION (4688) ────────────────────────
     def collect_process_events(self, hours_back: int = 24) -> int:
@@ -308,7 +318,7 @@ class RegistryCollector:
           - Admin rights
           - Audit Process Creation enabled:
             auditpol /set /subcategory:"Process Creation" /success:enable
-          - Command line logging enabled (GP or registry):
+          - Command line logging enabled:
             HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit
             ProcessCreationIncludeCmdLine_Enabled = 1
         """
@@ -336,13 +346,10 @@ class RegistryCollector:
                 for event in events:
                     if event.EventID != 4688:
                         continue
-                    # TimeGenerated is a pywintypes.datetime
                     event_dt = datetime.fromtimestamp(event.TimeGenerated.timestamp())
                     if event_dt < cutoff:
-                        # We've gone past our window
                         win32evtlog.CloseEventLog(hand)
                         return count
-
                     self._store_event_4688(event, event_dt)
                     count += 1
         except Exception as e:
@@ -358,11 +365,7 @@ class RegistryCollector:
     def _store_event_4688(self, event, event_dt: datetime):
         """Parse and store a single 4688 event."""
         strings = event.StringInserts or []
-        # 4688 field order (varies by OS version, common layout):
-        # [0] SubjectUserSid  [1] SubjectUserName  [2] SubjectDomainName
-        # [3] SubjectLogonId  [4] NewProcessId      [5] NewProcessName
-        # [6] TokenElevationType [7] ProcessId (parent)
-        # [8] CommandLine     [9] TargetUserSid ... etc.
+
         def get(i, default=""):
             return strings[i] if i < len(strings) else default
 
@@ -379,19 +382,18 @@ class RegistryCollector:
 
         self.conn.execute("""
             INSERT OR IGNORE INTO process_events
-                (pid, parent_pid, process_name, process_path, command_line, user_name, event_time, event_id)
+                (pid, parent_pid, process_name, process_path,
+                 command_line, user_name, event_time, event_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, 4688)
-        """, (new_pid, parent_pid, proc_name, proc_path, cmd_line, user_name,
-              event_dt.isoformat()))
+        """, (new_pid, parent_pid, proc_name, proc_path,
+              cmd_line, user_name, event_dt.isoformat()))
         self.conn.commit()
-
 
     # ── ATTACK CHAIN BUILDER ───────────────────────────────
     def build_attack_chain(self, reg_entry_id: int) -> list[dict]:
         """
         For a registry entry, find the process that wrote it,
         then walk up the parent chain to build the attack chain.
-        Matches by process name extracted from the registry value.
         """
         entry = self.conn.execute(
             "SELECT * FROM registry_entries WHERE id = ?", (reg_entry_id,)
@@ -399,13 +401,10 @@ class RegistryCollector:
         if not entry:
             return []
 
-        # Extract binary name from value_data
-        value = entry["value_data"] or ""
-        # Pull first token (executable) from the command
+        value     = entry["value_data"] or ""
         exe_token = value.strip().split()[0] if value.strip() else ""
-        exe_name = os.path.basename(exe_token.strip('"'))
+        exe_name  = os.path.basename(exe_token.strip('"'))
 
-        # Find the most recent matching process
         writer = self.conn.execute("""
             SELECT * FROM process_events
             WHERE process_name LIKE ?
@@ -413,15 +412,19 @@ class RegistryCollector:
         """, (f"%{exe_name}%",)).fetchone()
 
         if not writer:
-            # No matching process found in logs — return placeholder chain
             return [{
-                "pid": 0, "name": exe_name or "unknown",
-                "type": "malicious", "user": "unknown",
-                "path": exe_token, "cmdline": value,
-                "action": {"type": "reg", "label": f"Wrote {entry['hive']} key: {entry['name']}"}
+                "pid":     0,
+                "name":    exe_name or "unknown",
+                "type":    "malicious",
+                "user":    "unknown",
+                "path":    exe_token,
+                "cmdline": value,
+                "action":  {
+                    "type":  "reg",
+                    "label": f"Wrote {entry['hive']} key: {entry['name']}"
+                }
             }]
 
-        # Walk parent chain
         chain = []
         current = dict(writer)
         visited_pids = set()
@@ -432,23 +435,22 @@ class RegistryCollector:
             is_writer = current["pid"] == writer["pid"]
 
             node = {
-                "pid":      current["pid"],
-                "name":     current["process_name"] or "unknown",
-                "type":     node_type,
-                "user":     current["user_name"] or "",
-                "path":     current["process_path"] or "",
-                "cmdline":  current["command_line"] or "",
-                "action":   None
+                "pid":     current["pid"],
+                "name":    current["process_name"] or "unknown",
+                "type":    node_type,
+                "user":    current["user_name"] or "",
+                "path":    current["process_path"] or "",
+                "cmdline": current["command_line"] or "",
+                "action":  None
             }
             if is_writer:
                 node["action"] = {
-                    "type": "reg",
+                    "type":  "reg",
                     "label": f"Wrote {entry['hive']} key: {entry['name']} → {entry['value_data'][:60]}"
                 }
 
             chain.append(node)
 
-            # Fetch parent
             if current["parent_pid"]:
                 parent = self.conn.execute("""
                     SELECT * FROM process_events
@@ -459,9 +461,8 @@ class RegistryCollector:
             else:
                 break
 
-        chain.reverse()  # Root → leaf order
+        chain.reverse()  # Root → leaf
 
-        # Store chain
         self.conn.execute("""
             INSERT OR REPLACE INTO attack_chains (reg_entry_id, chain_json, built_at)
             VALUES (?, ?, ?)
@@ -475,14 +476,12 @@ class RegistryCollector:
         name = (proc.get("process_name") or "").lower()
         cmd  = (proc.get("command_line") or "").lower()
 
-        # System root processes
         if proc.get("pid") in (4, 0):
             return "system"
         if name in ("system", "smss.exe", "csrss.exe", "wininit.exe",
                     "winlogon.exe", "services.exe", "lsass.exe"):
             return "system"
 
-        # Check suspicious indicators
         severity, _ = RegistryCollector._static_assess(path, cmd)
         if severity == "critical":
             return "malicious"
@@ -493,7 +492,7 @@ class RegistryCollector:
 
     @staticmethod
     def _static_assess(path: str, cmd: str) -> tuple[str, str]:
-        """Standalone severity check (no instance needed)."""
+        """Standalone severity check used by _classify_node."""
         for sus in SUSPICIOUS_PATHS:
             if sus in path:
                 return "high", f"Suspicious path: {sus}"
@@ -524,7 +523,6 @@ class RegistryCollector:
         ).fetchone()
         if row:
             return json.loads(row["chain_json"])
-        # Build on demand
         return self.build_attack_chain(entry_id)
 
     def get_stats(self) -> dict:
@@ -556,28 +554,26 @@ if __name__ == "__main__":
         epilog="""
 Examples:
   python registry_collector.py --scan
-  python registry_collector.py --scan --extended
   python registry_collector.py --events --hours 48
   python registry_collector.py --scan --events --chain 1
         """
     )
-    parser.add_argument("--scan",     action="store_true", help="Scan registry persistence keys")
-    parser.add_argument("--extended", action="store_true", help="Include extended key set")
-    parser.add_argument("--events",   action="store_true", help="Collect Event ID 4688 from Security log")
-    parser.add_argument("--hours",    type=int, default=24, help="Hours back to pull events (default 24)")
-    parser.add_argument("--chain",    type=int, metavar="ID", help="Build attack chain for registry entry ID")
-    parser.add_argument("--db",       default="reghunt.db", help="Database path (default: reghunt.db)")
+    parser.add_argument("--scan",   action="store_true", help="Scan registry persistence keys")
+    parser.add_argument("--events", action="store_true", help="Collect Event ID 4688 from Security log")
+    parser.add_argument("--hours",  type=int, default=24, help="Hours back to pull events (default 24)")
+    parser.add_argument("--chain",  type=int, metavar="ID", help="Build attack chain for registry entry ID")
+    parser.add_argument("--db",     default="reghunt.db", help="Database path (default: reghunt.db)")
     args = parser.parse_args()
 
     col = RegistryCollector(db_path=args.db)
 
     if args.scan:
-        print(f"[*] Scanning registry persistence keys...")
-        entries = col.collect_registry(extended=args.extended)
+        print("[*] Scanning registry persistence keys (including all subkeys)...")
+        entries = col.collect_registry()
         print(f"[+] Found {len(entries)} entries")
         for e in entries:
             sev_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(e["severity"], "⚪")
-            print(f"  {sev_icon} [{e['severity'].upper():8}] {e['name']:30} → {e['value_data'][:60]}")
+            print(f"  {sev_icon} [{e['severity'].upper():8}] {e['name']:40} → {e['value_data'][:60]}")
 
     if args.events:
         print(f"\n[*] Collecting process creation events (last {args.hours}h)...")
