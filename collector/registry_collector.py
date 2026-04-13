@@ -164,15 +164,18 @@ def tag_process(proc_name: str, cmdline: str) -> list[dict]:
 
 
 def _normalise_reg_path(path: str) -> str:
-    """
-    Normalise registry paths for consistent matching.
-    Sysmon uses HKU\\S-1-5-21-...\\Software\\... for HKCU paths.
-    Convert to HKCU\\... so they match our stored reg_path values.
-    """
-    p = re.sub(r'^HKU\\S-[0-9-]+\\', 'HKCU\\', path, flags=re.IGNORECASE)
-    p = re.sub(r'^HKEY_CURRENT_USER\\', 'HKCU\\', p, flags=re.IGNORECASE)
-    p = re.sub(r'^HKEY_LOCAL_MACHINE\\', 'HKLM\\', p, flags=re.IGNORECASE)
-    return p
+    # Normalise Sysmon HKU/HKEY_* prefixes to short form.
+    # No regex — avoids re.sub replacement-string escape issues.
+    u = path.upper()
+    if u.startswith("HKU\\"):
+        rest  = path[4:]
+        slash = rest.find("\\")
+        path  = "HKCU\\" + (rest[slash + 1:] if slash != -1 else rest)
+    elif u.startswith("HKEY_CURRENT_USER\\"):
+        path = "HKCU\\" + path[18:]
+    elif u.startswith("HKEY_LOCAL_MACHINE\\"):
+        path = "HKLM\\" + path[19:]
+    return path
 
 
 class RegistryCollector:
@@ -471,8 +474,8 @@ class RegistryCollector:
             return 0
 
         count      = 0
-        from datetime import timezone
-        cutoff     = datetime.now(tz=timezone.utc) - timedelta(hours=hours_back)
+        from datetime import timezone as _tz
+        cutoff     = datetime.now(tz=_tz.utc) - timedelta(hours=hours_back)
         cutoff_str = cutoff.strftime('%Y-%m-%dT%H:%M:%S')
 
         # Simpler XPath: just filter by EventID, we'll filter by time in code
@@ -543,25 +546,25 @@ class RegistryCollector:
             ns = {'e': 'http://schemas.microsoft.com/win/2004/08/events/event'}
 
             # Get timestamp first for filtering
-            from datetime import timezone
+            from datetime import timezone as _tz
             tc = (root.find('.//e:TimeCreated', ns) or root.find('.//TimeCreated'))
             if tc is not None:
                 ts = tc.attrib.get('SystemTime', '')
-                # Sysmon timestamps are UTC: "2026-04-13T06:18:13.1234567Z"
-                # Strip sub-seconds, keep as ISO string, parse as UTC-aware
+                # Sysmon SystemTime is always UTC: "2026-04-13T08:52:25.4014546Z"
+                # Strip sub-second precision and Z, keep as clean ISO string
                 if '.' in ts:
-                    ts = ts.split('.')[0]
+                    ts = ts.split('.')[0]   # "2026-04-13T08:52:25"
                 ts = ts.rstrip('Z')
-                # Store as clean ISO string — consistent with 4688 event_time format
-                event_time = ts  # e.g. "2026-04-13T09:38:13"
+                event_time = ts             # stored as "2026-04-13T08:52:25"
                 try:
-                    # Parse as UTC-aware so comparison with cutoff works correctly
-                    event_dt = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+                    # Attach UTC timezone explicitly — fromisoformat gives naive
+                    # without it, and we need aware for comparison with cutoff
+                    event_dt = datetime.fromisoformat(ts).replace(tzinfo=_tz.utc)
                 except Exception:
-                    event_dt = datetime.now(tz=timezone.utc)
+                    event_dt = datetime.now(tz=_tz.utc)
             else:
                 event_time = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
-                event_dt   = datetime.now(tz=timezone.utc)
+                event_dt   = datetime.now(tz=_tz.utc)
 
             # Filter by time
             if event_dt < cutoff:
