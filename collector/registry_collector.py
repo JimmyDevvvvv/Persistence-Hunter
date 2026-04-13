@@ -32,6 +32,9 @@ except ImportError:
     print("[!] pywin32 not installed. Event log correlation disabled.")
     print("    pip install pywin32")
 
+# Debug flag
+DEBUG = os.environ.get("REGHUNT_DEBUG", "").lower() in ("1", "true", "yes")
+
 
 # ── REGISTRY KEYS TO MONITOR ──────────────────────────────
 PERSISTENCE_KEYS = [
@@ -260,10 +263,15 @@ class RegistryCollector:
         return conn
 
     # ── REGISTRY SCANNING ──────────────────────────────────
-    def collect_registry(self) -> list[dict]:
+    def collect_registry(self, extended: bool = False) -> list[dict]:
+        """
+        Scan registry persistence keys.
+        extended parameter is reserved for future use (e.g., more keys).
+        """
         results = []
         for key_info in PERSISTENCE_KEYS:
             results.extend(self._read_key(key_info))
+        # TODO: If extended, scan additional persistence locations (Winlogon, Services, etc.)
         return results
 
     def _read_key(self, key_info: dict) -> list[dict]:
@@ -463,14 +471,18 @@ class RegistryCollector:
             return 0
 
         count      = 0
-        cutoff     = datetime.now() - timedelta(hours=hours_back)
+        from datetime import timezone
+        cutoff     = datetime.now(tz=timezone.utc) - timedelta(hours=hours_back)
         cutoff_str = cutoff.strftime('%Y-%m-%dT%H:%M:%S')
 
-        # XPath query — pre-filters at the API level so we only get reg events
-        xpath = (
-            f"*[System[(EventID=12 or EventID=13) and "
-            f"TimeCreated[@SystemTime>='{cutoff_str}']]]"
-        )
+        # Simpler XPath: just filter by EventID, we'll filter by time in code
+        # Some Windows versions have issues with TimeCreated in XPath
+        xpath = "*[System[(EventID=12 or EventID=13)]]"
+
+        if DEBUG:
+            print(f"[DEBUG] Querying channel: {self.SYSMON_CHANNEL}")
+            print(f"[DEBUG] XPath: {xpath}")
+            print(f"[DEBUG] Time cutoff: {cutoff_str}")
 
         try:
             handle = win32evtlog.EvtQuery(
@@ -500,9 +512,11 @@ class RegistryCollector:
                         xml_str = win32evtlog.EvtRender(
                             event, win32evtlog.EvtRenderEventXml
                         )
-                        if self._store_sysmon_from_xml(xml_str):
+                        if self._store_sysmon_from_xml(xml_str, cutoff):
                             count += 1
-                    except Exception:
+                    except Exception as e:
+                        if DEBUG:
+                            print(f"[DEBUG] Error rendering event: {e}")
                         pass
         except Exception as e:
             print(f"[!] Error iterating Sysmon events: {e}")
@@ -514,30 +528,13 @@ class RegistryCollector:
 
         return count
 
-    def _store_sysmon_from_xml(self, xml_str: str) -> bool:
+    def _store_sysmon_from_xml(self, xml_str: str, cutoff: datetime) -> bool:
         """
         Parse a Sysmon event from its raw XML and store it.
 
         EvtRender gives us the full event XML — no StringInserts needed.
         We extract fields by Name attribute from <EventData><Data Name="...">
         nodes, which is stable across all Sysmon versions.
-
-        Example XML structure:
-          <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
-            <System>
-              <EventID>13</EventID>
-              <TimeCreated SystemTime="2026-04-13T06:18:13.123Z"/>
-            </System>
-            <EventData>
-              <Data Name="RuleName">reghunt</Data>
-              <Data Name="EventType">SetValue</Data>
-              <Data Name="ProcessId">44821</Data>
-              <Data Name="Image">C:\\Windows\\System32\\reg.exe</Data>
-              <Data Name="TargetObject">HKCU\\SOFTWARE\\...\\Run\\SysmonTest6</Data>
-              <Data Name="Details">C:\\malware\\test6.exe</Data>
-              <Data Name="User">DESKTOP-...\\User</Data>
-            </EventData>
-          </Event>
         """
         try:
             root = ET.fromstring(xml_str)
@@ -545,8 +542,32 @@ class RegistryCollector:
             # Namespace used by Windows event XML
             ns = {'e': 'http://schemas.microsoft.com/win/2004/08/events/event'}
 
-            # Extract all <Data Name="..."> fields into a flat dict
-            # Try namespaced first, then without namespace as fallback
+            # Get timestamp first for filtering
+            from datetime import timezone
+            tc = (root.find('.//e:TimeCreated', ns) or root.find('.//TimeCreated'))
+            if tc is not None:
+                ts = tc.attrib.get('SystemTime', '')
+                # Sysmon timestamps are UTC: "2026-04-13T06:18:13.1234567Z"
+                # Strip sub-seconds, keep as ISO string, parse as UTC-aware
+                if '.' in ts:
+                    ts = ts.split('.')[0]
+                ts = ts.rstrip('Z')
+                # Store as clean ISO string — consistent with 4688 event_time format
+                event_time = ts  # e.g. "2026-04-13T09:38:13"
+                try:
+                    # Parse as UTC-aware so comparison with cutoff works correctly
+                    event_dt = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+                except Exception:
+                    event_dt = datetime.now(tz=timezone.utc)
+            else:
+                event_time = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
+                event_dt   = datetime.now(tz=timezone.utc)
+
+            # Filter by time
+            if event_dt < cutoff:
+                return False
+
+            # Extract all <Data Name="..."> fields
             fields = {}
             for node in root.findall('.//e:Data', ns):
                 name = node.attrib.get('Name', '')
@@ -571,9 +592,8 @@ class RegistryCollector:
 
             event_type = fields.get('EventType', '').lower()
 
-            # ID 13: only SetValue events (not DeleteValue etc.)
-            # ID 12: CreateKey/OpenKey — weaker signal but still tells us which
-            #        process touched the Run key
+            # ID 13: only SetValue events
+            # ID 12: CreateKey/OpenKey — also useful
             if event_id == 13 and event_type != 'setvalue':
                 return False
             if event_id not in (12, 13):
@@ -591,21 +611,16 @@ class RegistryCollector:
             value_data = fields.get('Details', '')
             user_name  = fields.get('User', '')
 
-            # Get timestamp from TimeCreated SystemTime attribute
-            tc = (root.find('.//e:TimeCreated', ns) or root.find('.//TimeCreated'))
-            if tc is not None:
-                ts = tc.attrib.get('SystemTime', '')
-                # Trim to seconds: "2026-04-13T06:18:13.1234567Z" → "2026-04-13T06:18:13"
-                event_time = ts[:19].replace('T', ' ')
-            else:
-                event_time = datetime.utcnow().isoformat()[:19]
-
             # Normalise HKU\SID\... → HKCU\...
             key_norm = _normalise_reg_path(key_path)
 
-            # Only store Run / RunOnce keys
-            if 'currentversion\\run' not in key_norm.lower():
+            # Only store Run / RunOnce keys - check both forward and backslash
+            key_lower = key_norm.lower()
+            if 'currentversion\\run' not in key_lower and 'currentversion/run' not in key_lower:
                 return False
+
+            if DEBUG:
+                print(f"[DEBUG] Storing Sysmon event: PID={pid} Image={proc_path} Key={key_norm}")
 
             self.conn.execute("""
                 INSERT OR IGNORE INTO registry_writes
@@ -613,11 +628,17 @@ class RegistryCollector:
                      value_data, user_name, event_time)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (pid, proc_name, proc_path, key_norm,
-                  value_data, user_name, event_time))
+                  value_data, user_name, event_time[:19]))
             self.conn.commit()
             return True
 
-        except Exception:
+        except ET.ParseError as e:
+            if DEBUG:
+                print(f"[DEBUG] XML parse error: {e}")
+            return False
+        except Exception as e:
+            if DEBUG:
+                print(f"[DEBUG] Unexpected error: {e}")
             return False
 
     # ── WRITER LOOKUP ──────────────────────────────────────
