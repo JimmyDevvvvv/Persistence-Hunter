@@ -799,57 +799,99 @@ class RegistryCollector:
         """
         Try to attribute which process wrote this Run key entry.
 
+        Sysmon EventID 13 TargetObject can take two forms depending on config:
+          A) Full value path:  HKCU...Run-TestMalware  (value name appended)
+          B) Key-only path:   HKCU...Run               (just the key)
+
+        We must handle both, plus the case where the registry entry name
+        differs from the value name Sysmon logged (e.g. entry='Malware',
+        Sysmon wrote 'TestMalware' for the same value).
+
         Strategy (in order):
-          1. Sysmon key-path LIKE match  (exact, most reliable)
-          2. Sysmon image-path match     (matches any Sysmon event whose Image
-                                          matches the value_data exe path)
-          3. 4688 fuzzy exe-name match   (last resort)
+          1. Sysmon full-value match:  key_path ends with the entry_name
+          2. Sysmon parent-key match:  key_path IS the Run key, correlated by
+                                       exe path written around the same time
+          3. Sysmon image-path match:  any Sysmon write whose Image == our exe
+          4. 4688 fuzzy exe-name match (last resort)
         """
         entry_name = (entry.get("name") or "").lower()
+        reg_path   = (entry.get("reg_path") or "").lower()   # e.g. hkcu\software\...\run
         value_data = entry.get("value_data") or ""
         exe_token  = value_data.strip().split()[0] if value_data.strip() else ""
         exe_path   = exe_token.strip('"')
         exe_name   = os.path.basename(exe_path)
 
-        # ── 1. Sysmon key-path match ─────────────────────────
-        sysmon_row = self.conn.execute("""
+        debug_print(f"_find_writer entry={entry_name!r} exe={exe_name!r} reg_path={reg_path!r}")
+
+        # ── 1. Sysmon full-value match  (key_path ends with \<entry_name>) ──
+        row = self.conn.execute("""
             SELECT * FROM registry_writes
-            WHERE  LOWER(key_path) LIKE ?
-            ORDER BY event_time DESC
-            LIMIT 1
+            WHERE LOWER(key_path) LIKE ?
+            ORDER BY event_time DESC LIMIT 1
         """, (f"%\\{entry_name}",)).fetchone()
+        debug_print(f"  [1] full-value match: {'found' if row else 'NONE'}")
+        if row:
+            return self._enrich_from_sysmon(row)
 
-        debug_print(f"_find_writer [{entry_name}]: "
-                    f"sysmon key-path={'found' if sysmon_row else 'NONE'}")
-
-        if sysmon_row:
-            return self._enrich_from_sysmon(sysmon_row)
-
-        # ── 2. Sysmon image-path match ───────────────────────
-        # If the Run value points to totally_not_malware.exe, find any Sysmon
-        # registry write whose Image field matches that path.
-        if exe_path:
-            img_row = self.conn.execute("""
+        # ── 2. Sysmon parent-key match ────────────────────────────────────────
+        # Some Sysmon configs log the key, not the value. Find writes TO the
+        # parent Run key, then pick the one whose process_path matches our exe
+        # (closest in time). Falls back to any write to that key if no exe match.
+        if reg_path:
+            parent_rows = self.conn.execute("""
                 SELECT * FROM registry_writes
-                WHERE  LOWER(process_path) = ?
-                ORDER BY event_time DESC
-                LIMIT 1
+                WHERE LOWER(key_path) = ?
+                ORDER BY event_time DESC LIMIT 50
+            """, (reg_path,)).fetchall()
+
+            debug_print(f"  [2] parent-key rows: {len(parent_rows)}")
+
+            if parent_rows:
+                # Best: same exe path
+                if exe_path:
+                    for r in parent_rows:
+                        if (r["process_path"] or "").lower() == exe_path.lower():
+                            debug_print(f"  [2] matched by exe_path")
+                            return self._enrich_from_sysmon(r)
+                # Second best: same exe name
+                if exe_name:
+                    for r in parent_rows:
+                        if (r["process_name"] or "").lower() == exe_name.lower():
+                            debug_print(f"  [2] matched by exe_name")
+                            return self._enrich_from_sysmon(r)
+                # Fallback: most recent write to parent key by any non-system process
+                system_procs = {"sihost.exe", "explorer.exe", "svchost.exe",
+                                "taskhostw.exe", "runtimebroker.exe", "ctfmon.exe",
+                                "userinit.exe", "winlogon.exe", "services.exe"}
+                for r in parent_rows:
+                    if (r["process_name"] or "").lower() not in system_procs:
+                        debug_print(f"  [2] matched by non-system process")
+                        return self._enrich_from_sysmon(r)
+
+        # ── 3. Sysmon image-path match ────────────────────────────────────────
+        # Find any registry write (to any key) by the same executable.
+        if exe_path:
+            row = self.conn.execute("""
+                SELECT * FROM registry_writes
+                WHERE LOWER(process_path) = ?
+                ORDER BY event_time DESC LIMIT 1
             """, (exe_path.lower(),)).fetchone()
+            debug_print(f"  [3] image full-path match: {'found' if row else 'NONE'}")
+            if row:
+                return self._enrich_from_sysmon(row)
 
-            if not img_row and exe_name:
-                img_row = self.conn.execute("""
-                    SELECT * FROM registry_writes
-                    WHERE  LOWER(process_name) = ?
-                    ORDER BY event_time DESC
-                    LIMIT 1
-                """, (exe_name.lower(),)).fetchone()
+        if exe_name:
+            row = self.conn.execute("""
+                SELECT * FROM registry_writes
+                WHERE LOWER(process_name) = ?
+                ORDER BY event_time DESC LIMIT 1
+            """, (exe_name.lower(),)).fetchone()
+            debug_print(f"  [3] image name match: {'found' if row else 'NONE'}")
+            if row:
+                return self._enrich_from_sysmon(row)
 
-            debug_print(f"  sysmon image-path match ({'found' if img_row else 'NONE'})")
-            if img_row:
-                return self._enrich_from_sysmon(img_row)
-
-        # ── 3. 4688 fuzzy exe-name fallback ──────────────────
-        debug_print(f"  falling back to 4688 fuzzy on exe_name={exe_name!r}")
+        # ── 4. 4688 fuzzy exe-name fallback ──────────────────────────────────
+        debug_print(f"  [4] falling back to 4688 on exe_name={exe_name!r}")
         proc = self._find_process(exe_name)
         if proc:
             proc["writer_source"] = "4688"
