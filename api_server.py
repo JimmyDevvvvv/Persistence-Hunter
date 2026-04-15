@@ -163,48 +163,6 @@ def collect_events(req: EventsRequest, background_tasks: BackgroundTasks):
     return {"status": "collection_started", "hours_back": req.hours_back}
 
 
-@app.post("/api/collect-sysmon")
-def collect_sysmon(req: EventsRequest, background_tasks: BackgroundTasks):
-    """
-    Collect Sysmon Event ID 13 (registry value set) events.
-    Provides confirmed writer attribution — exactly which process
-    wrote which registry key. Requires Sysmon installed and configured.
-
-    Minimal sysmon config required:
-      <RegistryEvent onmatch="include">
-        <TargetObject condition="contains">CurrentVersion\Run</TargetObject>
-      </RegistryEvent>
-    """
-    def run_collect():
-        col = RegistryCollector(db_path=DB_PATH)
-        try:
-            col.collect_registry_writes(hours_back=req.hours_back)
-        finally:
-            col.close()
-
-    background_tasks.add_task(run_collect)
-    return {"status": "sysmon_collection_started", "hours_back": req.hours_back}
-
-
-@app.get("/api/sysmon/status")
-def sysmon_status():
-    """
-    Check whether any Sysmon registry write events exist in the DB.
-    Frontend uses this to show/hide the Sysmon attribution badge.
-    """
-    col = get_collector()
-    try:
-        count = col.conn.execute(
-            "SELECT COUNT(*) FROM registry_writes"
-        ).fetchone()[0]
-        return {
-            "available": count > 0,
-            "event_count": count
-        }
-    finally:
-        col.close()
-
-
 @app.post("/api/rebuild-chain/{entry_id}")
 def rebuild_chain(entry_id: int):
     """Force-rebuild the attack chain for an entry (re-queries process events)."""

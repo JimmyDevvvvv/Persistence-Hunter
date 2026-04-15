@@ -2,8 +2,7 @@
 registry_collector.py
 Collects registry persistence entries from the 4 main Run/RunOnce keys,
 recursing into all subkeys so nothing is missed.
-Correlates findings with Event ID 4688 process creation logs and
-Sysmon Event ID 13 (registry value set) for confirmed write attribution.
+Correlates findings with Event ID 4688 process creation logs.
 
 Requires: Windows, pywin32
 Run as Administrator for HKLM access and Security event log access.
@@ -15,14 +14,11 @@ import json
 import hashlib
 import os
 import re
-import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 # pywin32 — install via: pip install pywin32
 # Used for EvtQuery → EvtNext → EvtRender (modern Windows Event Log API).
-# This is the same API used internally by Event Viewer and is reliable on
-# all custom channels (e.g. Sysmon) where the legacy OpenEventLog API fails.
 try:
     import win32evtlog
     PYWIN32_AVAILABLE = True
@@ -86,7 +82,22 @@ SUSPICIOUS_PATHS = [
     r"\desktop",
     r"c:\perflogs",
     r"c:\recycler",
+    r"c:\malware",
+    r"c:\payload",
+    r"c:\tools\implant",
+    r"c:\staged",
 ]
+
+# Filename patterns that are always critical regardless of path
+SUSPICIOUS_NAME_PATTERNS = [
+    "fake", "malware", "backdoor", "payload", "implant",
+    "keylog", "rat.", "trojan", "dropper", "loader",
+    "stager", "beacon", "inject", "shellcode", "exploit",
+    "not_malware", "definitely_not", "totally_not",
+]
+
+# Root-level executables (e.g. C:\evil.exe) are suspicious — nothing legit lives at C:\
+_ROOT_EXE_RE = re.compile(r'^[a-z]:\\[^\\]+\.exe', re.IGNORECASE)
 
 LEGIT_APPDATA_LOCAL = [
     r"\appdata\local\microsoft\windowsapps",
@@ -170,40 +181,33 @@ def normalise_reg_path(path: str) -> str:
     Normalise registry paths for consistent matching.
 
     Input formats we must handle:
-      1. Kernel paths from EvtRender raw XML (the most common case with EvtQuery):
+      1. Kernel paths from EvtRender raw XML:
            \REGISTRY\MACHINE\SOFTWARE\...          -> HKLM\SOFTWARE\...
            \REGISTRY\USER\S-1-5-21-...\Software\.. -> HKCU\Software\...
            \REGISTRY\USER\.DEFAULT\...             -> HKU\.DEFAULT\...
 
-      2. Sysmon-abbreviated paths (from Sysmon's own rendering):
-           HKLM\...   HKU\SID\...   HKCR\...
-
-      3. Win32 API names:
+      2. Win32 API names:
            HKEY_LOCAL_MACHINE\...
            HKEY_CURRENT_USER\...
     """
-    p = path.lstrip("\\")           # strip leading backslash(es)
+    p = path.lstrip("\\")
     upper = p.upper()
 
-    # ── ① Kernel paths: \REGISTRY\MACHINE\... and \REGISTRY\USER\... ─────────
     if upper.startswith("REGISTRY\\MACHINE\\"):
         return "HKLM\\" + p[len("REGISTRY\\MACHINE\\"):]
 
     if upper.startswith("REGISTRY\\USER\\"):
-        rest = p[len("REGISTRY\\USER\\"):]          # SID\Software\... or .DEFAULT\...
-        # Skip the SID component (everything up to the first \)
+        rest = p[len("REGISTRY\\USER\\"):]
         parts = rest.split("\\", 1)
         if len(parts) == 2:
             sid, remainder = parts
-            # Well-known service SIDs are not HKCU
             if sid.upper() in (".DEFAULT", "S-1-5-18", "S-1-5-19", "S-1-5-20"):
                 return f"HKU\\{sid}\\{remainder}"
             return "HKCU\\" + remainder
         return "HKCU\\" + rest
 
-    # ── ② Sysmon-abbreviated: HKU\SID\... ────────────────────────────────────
     if upper.startswith("HKU\\"):
-        parts = p.split("\\", 2)                    # ["HKU", "SID", "rest"]
+        parts = p.split("\\", 2)
         if len(parts) >= 3:
             sid = parts[1].upper()
             if sid in (".DEFAULT", "S-1-5-18", "S-1-5-19", "S-1-5-20"):
@@ -211,7 +215,6 @@ def normalise_reg_path(path: str) -> str:
             return "HKCU\\" + parts[2]
         return "HKCU\\" + (parts[1] if len(parts) > 1 else "")
 
-    # ── ③ Win32 long-form names ───────────────────────────────────────────────
     if upper.startswith("HKEY_LOCAL_MACHINE\\"):
         return "HKLM\\" + p[19:]
     if upper.startswith("HKEY_CURRENT_USER\\"):
@@ -221,7 +224,6 @@ def normalise_reg_path(path: str) -> str:
     if upper.startswith("HKEY_CLASSES_ROOT\\"):
         return "HKCR\\" + p[18:]
 
-    # Already normalised (HKLM\, HKCU\, HKCR\, etc.)
     return p
 
 
@@ -229,7 +231,6 @@ class RegistryCollector:
     def __init__(self, db_path: str = "reghunt.db"):
         self.db_path = db_path
         self.conn    = self._init_db()
-        self.SYSMON_CHANNEL = "Microsoft-Windows-Sysmon/Operational"
 
     # ── DATABASE SETUP ─────────────────────────────────────
     def _init_db(self) -> sqlite3.Connection:
@@ -262,6 +263,7 @@ class RegistryCollector:
                 event_id        INTEGER
             );
 
+            -- Kept for schema compatibility with existing DBs; always empty now.
             CREATE TABLE IF NOT EXISTS registry_writes (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 pid             INTEGER,
@@ -285,9 +287,6 @@ class RegistryCollector:
             CREATE INDEX IF NOT EXISTS idx_proc_ppid  ON process_events(parent_pid);
             CREATE INDEX IF NOT EXISTS idx_proc_name  ON process_events(process_name);
             CREATE INDEX IF NOT EXISTS idx_proc_time  ON process_events(event_time);
-            CREATE INDEX IF NOT EXISTS idx_regw_key   ON registry_writes(key_path);
-            CREATE INDEX IF NOT EXISTS idx_regw_time  ON registry_writes(event_time);
-            CREATE INDEX IF NOT EXISTS idx_regw_pid   ON registry_writes(pid);
         """)
         conn.commit()
 
@@ -297,32 +296,17 @@ class RegistryCollector:
             conn.execute("ALTER TABLE registry_entries ADD COLUMN techniques TEXT DEFAULT '[]'")
             conn.commit()
 
-        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if "registry_writes" not in tables:
-            conn.executescript("""
-                CREATE TABLE registry_writes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    pid INTEGER, process_name TEXT, process_path TEXT,
-                    key_path TEXT, value_data TEXT, user_name TEXT, event_time TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_regw_key  ON registry_writes(key_path);
-                CREATE INDEX IF NOT EXISTS idx_regw_time ON registry_writes(event_time);
-                CREATE INDEX IF NOT EXISTS idx_regw_pid  ON registry_writes(pid);
-            """)
-            conn.commit()
-
         return conn
 
     # ── REGISTRY SCANNING ──────────────────────────────────
     def collect_registry(self, extended: bool = False) -> list[dict]:
         """
         Scan registry persistence keys.
-        extended parameter is reserved for future use (e.g., more keys).
+        extended is reserved for future additional persistence locations.
         """
         results = []
         for key_info in PERSISTENCE_KEYS:
             results.extend(self._read_key(key_info))
-        # TODO: If extended, scan additional persistence locations
         return results
 
     def _read_key(self, key_info: dict) -> list[dict]:
@@ -414,11 +398,23 @@ class RegistryCollector:
 
         for legit_appdata in LEGIT_APPDATA_LOCAL:
             if legit_appdata in value_lower:
-                return "medium", f"AppData path — common app location but verify"
+                return "medium", "AppData path — common app location but verify"
+
+        # Suspicious filename patterns → critical regardless of path
+        exe_lower = value_lower.split("\\")[-1].split('"')[0].split(" ")[0]
+        for pat in SUSPICIOUS_NAME_PATTERNS:
+            if pat in exe_lower or pat in name.lower():
+                return "critical", f"Suspicious filename pattern: {pat}"
 
         for sus_path in SUSPICIOUS_PATHS:
             if sus_path in value_lower:
                 return "high", f"Executable in suspicious path: {sus_path}"
+
+        # Root-level executable (C:\something.exe) — nothing legit lives here
+        # Strip leading quote if present
+        clean_val = value_lower.lstrip('"')
+        if _ROOT_EXE_RE.match(clean_val):
+            return "high", "Executable at filesystem root — unusual location"
 
         return "medium", "Not in known-good path — manual review recommended"
 
@@ -442,8 +438,7 @@ class RegistryCollector:
     def collect_process_events(self, hours_back: int = 24) -> int:
         """
         Collect Security EventID 4688 (process creation) using the modern
-        EvtQuery API with a timediff() XPath filter — same pattern as
-        collect_registry_writes so both are consistent and reliable.
+        EvtQuery API with a timediff() XPath filter.
         Requires 'Audit Process Creation' to be enabled and
         'Include command line in process creation events' for full cmdline.
         """
@@ -519,7 +514,6 @@ class RegistryCollector:
             root = ET.fromstring(xml_str)
             ns   = "{http://schemas.microsoft.com/win/2004/08/events/event}"
 
-            # Timestamp
             tc = root.find(f".//{ns}TimeCreated")
             if tc is None:
                 return False
@@ -531,7 +525,6 @@ class RegistryCollector:
             if event_dt < cutoff:
                 return False
 
-            # Named EventData fields
             fields: dict[str, str] = {}
             for data in root.findall(f".//{ns}Data"):
                 name = data.attrib.get("Name", "")
@@ -570,370 +563,82 @@ class RegistryCollector:
             debug_print(f"4688 store error: {e}")
             return False
 
-    # ── SYSMON COLLECTION (EvtQuery → EvtNext → EvtRender) ────
-    def collect_registry_writes(self, hours_back: int = 24) -> int:
-        """
-        Collect Sysmon EventID 12/13 events by querying the live channel
-        directly via win32evtlog.EvtQuery — no temp files, no wevtutil,
-        no python-evtx required.
-
-        Uses timediff() for time filtering, which is reliable across all
-        Windows versions (absolute-UTC comparisons with wevtutil epl are not).
-        """
-        if not PYWIN32_AVAILABLE:
-            print("[!] pywin32 not available — skipping Sysmon collection")
-            return 0
-
-        try:
-            import pywintypes
-        except ImportError:
-            print("[!] pywintypes not available — skipping Sysmon collection")
-            return 0
-
-        ms_back = hours_back * 3_600_000          # hours → milliseconds
-        cutoff  = datetime.utcnow() - timedelta(hours=hours_back)
-
-        # timediff() is the only reliable time-filter for EvtQuery / wevtutil.
-        # It computes milliseconds since the event was written, relative to NOW.
-        xpath = (
-            f"*[System["
-            f"(EventID=12 or EventID=13) and "
-            f"TimeCreated[timediff(@SystemTime) <= {ms_back}]"
-            f"]]"
-        )
-        debug_print(f"Hours back : {hours_back}")
-        debug_print(f"ms_back    : {ms_back}")
-        debug_print(f"XPath      : {xpath}")
-
-        count = 0
-        try:
-            query_handle = win32evtlog.EvtQuery(
-                self.SYSMON_CHANNEL,
-                win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryReverseDirection,
-                xpath,
-                None,
-            )
-        except pywintypes.error as e:
-            # ERROR_EVT_CHANNEL_NOT_FOUND (15007) → Sysmon not installed/running
-            # ERROR_ACCESS_DENIED (5)             → not running as Administrator
-            err_code = e.args[0] if e.args else 0
-            if err_code == 15007:
-                print(f"[!] Sysmon channel not found — is Sysmon installed and running?")
-            elif err_code == 5:
-                print(f"[!] Access denied reading Sysmon log — run as Administrator")
-            else:
-                print(f"[!] Cannot open Sysmon channel: {e}")
-            return self._collect_registry_writes_fallback(hours_back)
-
-        try:
-            while True:
-                # Pull events in batches of 100 — minimises round-trip overhead
-                try:
-                    events = win32evtlog.EvtNext(query_handle, 100, -1, 0)
-                except pywintypes.error:
-                    break  # no more events
-
-                if not events:
-                    break
-
-                for evt_handle in events:
-                    try:
-                        xml_str = win32evtlog.EvtRender(
-                            evt_handle, win32evtlog.EvtRenderEventXml
-                        )
-                        if self._store_sysmon_from_xml(xml_str, cutoff):
-                            count += 1
-                            if DEBUG and count % 100 == 0:
-                                debug_print(f"  … stored {count} events so far")
-                    except Exception as exc:
-                        debug_print(f"Error rendering event: {exc}")
-
-        except Exception as e:
-            print(f"[!] Sysmon EvtQuery enumeration failed: {e}")
-        finally:
-            try:
-                win32evtlog.EvtClose(query_handle)
-            except Exception:
-                pass
-
-        debug_print(f"Stored {count} Sysmon events from the last {hours_back} hours")
-        return count
-
-    def _collect_registry_writes_fallback(self, hours_back: int) -> int:
-        """
-        Last-resort fallback: call PowerShell Get-WinEvent and parse its XML
-        output. Used only when EvtQuery fails (e.g. Sysmon not installed).
-        No temp .evtx files — output is piped directly from stdout.
-        """
-        ms_back = hours_back * 3_600_000
-        cutoff  = datetime.utcnow() - timedelta(hours=hours_back)
-
-        xpath = (
-            f"*[System[(EventID=12 or EventID=13) and "
-            f"TimeCreated[timediff(@SystemTime) <= {ms_back}]]]"
-        )
-
-        ps_cmd = (
-            f"Get-WinEvent -LogName '{self.SYSMON_CHANNEL}' "
-            f"-FilterXPath '{xpath}' -ErrorAction SilentlyContinue "
-            f"| ForEach-Object {{ $_.ToXml() }}"
-        )
-
-        debug_print(f"[fallback] PowerShell: {ps_cmd}")
-
-        try:
-            result = subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive",
-                 "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
-                capture_output=True, text=True, check=False, timeout=60,
-            )
-        except Exception as e:
-            print(f"[!] PowerShell fallback failed: {e}")
-            return 0
-
-        if result.returncode not in (0, 1):   # rc=1 when no events found is normal
-            debug_print(f"[fallback] PS stderr: {result.stderr[:200]}")
-            return 0
-
-        count = 0
-        # Each event comes back as a standalone XML fragment; split on </Event>
-        for fragment in re.split(r'(?<=</Event>)', result.stdout):
-            fragment = fragment.strip()
-            if not fragment:
-                continue
-            if self._store_sysmon_from_xml(fragment, cutoff):
-                count += 1
-
-        debug_print(f"[fallback] Stored {count} events via PowerShell")
-        return count
-
-    def _store_sysmon_from_xml(self, xml_str: str, cutoff: datetime) -> bool:
-        """
-        Parse a Sysmon event XML and store it if within time window.
-        Returns True if stored.
-        """
-        try:
-            root = ET.fromstring(xml_str)
-
-            # Extract EventID and timestamp
-            event_id = None
-            event_dt = None
-            for node in root.iter():
-                tag = node.tag.split('}')[-1] if '}' in node.tag else node.tag
-                if tag == 'EventID':
-                    event_id = int(node.text or '0')
-                elif tag == 'TimeCreated':
-                    ts = node.attrib.get('SystemTime', '')
-                    if ts:
-                        ts_clean = ts.split('.')[0].rstrip('Z')
-                        event_dt = datetime.fromisoformat(ts_clean)
-                        break
-
-            if event_id is None or event_dt is None:
-                return False
-            if event_id not in (12, 13):
-                return False
-            if event_dt < cutoff:
-                return False
-
-            # Extract Data fields
-            fields = {}
-            for node in root.iter():
-                tag = node.tag.split('}')[-1] if '}' in node.tag else node.tag
-                if tag == 'Data':
-                    name = node.attrib.get('Name', '')
-                    if name:
-                        fields[name] = (node.text or '').strip()
-
-            if not fields:
-                return False
-
-            # EventType filter for ID 13 (SetValue)
-            if event_id == 13 and fields.get('EventType', '').lower() != 'setvalue':
-                return False
-
-            # Extract values
-            try:
-                pid = int(fields.get('ProcessId', '0'))
-            except (ValueError, TypeError):
-                pid = 0
-
-            proc_path = fields.get('Image', '')
-            proc_name = os.path.basename(proc_path)
-            key_path = fields.get('TargetObject', '')
-            value_data = fields.get('Details', '')
-            user_name = fields.get('User', '')
-
-            if not key_path:
-                return False
-
-            # Normalize path
-            key_norm = normalise_reg_path(key_path)
-
-            # Only store Run / RunOnce keys
-            if 'currentversion\\run' not in key_norm.lower():
-                return False
-
-            # Store the event
-            event_time_str = event_dt.isoformat()[:19]
-            self.conn.execute("""
-                INSERT OR IGNORE INTO registry_writes
-                    (pid, process_name, process_path, key_path,
-                     value_data, user_name, event_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (pid, proc_name, proc_path, key_norm,
-                  value_data, user_name, event_time_str))
-            self.conn.commit()
-            debug_print(f"Stored event: PID={pid} Image={proc_path} Key={key_norm}")
-            return True
-
-        except ET.ParseError as e:
-            debug_print(f"XML parse error: {e}")
-            return False
-        except Exception as e:
-            debug_print(f"Unexpected error: {e}")
-            return False
-
     # ── WRITER LOOKUP ──────────────────────────────────────
     def _find_writer(self, entry: dict) -> dict | None:
         """
-        Try to attribute which process wrote this Run key entry.
-
-        Sysmon EventID 13 TargetObject can take two forms depending on config:
-          A) Full value path:  HKCU...Run-TestMalware  (value name appended)
-          B) Key-only path:   HKCU...Run               (just the key)
-
-        We must handle both, plus the case where the registry entry name
-        differs from the value name Sysmon logged (e.g. entry='Malware',
-        Sysmon wrote 'TestMalware' for the same value).
-
-        Strategy (in order):
-          1. Sysmon full-value match:  key_path ends with the entry_name
-          2. Sysmon parent-key match:  key_path IS the Run key, correlated by
-                                       exe path written around the same time
-          3. Sysmon image-path match:  any Sysmon write whose Image == our exe
-          4. 4688 fuzzy exe-name match (last resort)
+        Attribute which process wrote this Run key entry using 4688 events only.
+        Matches by the executable name extracted from the registry value_data.
+        Returns the most recent matching process_events row, or None.
         """
-        entry_name = (entry.get("name") or "").lower()
-        reg_path   = (entry.get("reg_path") or "").lower()   # e.g. hkcu\software\...\run
         value_data = entry.get("value_data") or ""
         exe_token  = value_data.strip().split()[0] if value_data.strip() else ""
         exe_path   = exe_token.strip('"')
         exe_name   = os.path.basename(exe_path)
 
-        debug_print(f"_find_writer entry={entry_name!r} exe={exe_name!r} reg_path={reg_path!r}")
+        debug_print(f"_find_writer entry={entry.get('name')!r} exe={exe_name!r}")
 
-        # ── 1. Sysmon full-value match  (key_path ends with \<entry_name>) ──
+        if not exe_name:
+            return None
+
+        # Exact name match — most reliable
         row = self.conn.execute("""
-            SELECT * FROM registry_writes
-            WHERE LOWER(key_path) LIKE ?
-            ORDER BY event_time DESC LIMIT 1
-        """, (f"%\\{entry_name}",)).fetchone()
-        debug_print(f"  [1] full-value match: {'found' if row else 'NONE'}")
-        if row:
-            return self._enrich_from_sysmon(row)
-
-        # ── 2. Sysmon parent-key match ────────────────────────────────────────
-        # Some Sysmon configs log the key, not the value. Find writes TO the
-        # parent Run key, then pick the one whose process_path matches our exe
-        # (closest in time). Falls back to any write to that key if no exe match.
-        if reg_path:
-            parent_rows = self.conn.execute("""
-                SELECT * FROM registry_writes
-                WHERE LOWER(key_path) = ?
-                ORDER BY event_time DESC LIMIT 50
-            """, (reg_path,)).fetchall()
-
-            debug_print(f"  [2] parent-key rows: {len(parent_rows)}")
-
-            if parent_rows:
-                # Best: same exe path
-                if exe_path:
-                    for r in parent_rows:
-                        if (r["process_path"] or "").lower() == exe_path.lower():
-                            debug_print(f"  [2] matched by exe_path")
-                            return self._enrich_from_sysmon(r)
-                # Second best: same exe name
-                if exe_name:
-                    for r in parent_rows:
-                        if (r["process_name"] or "").lower() == exe_name.lower():
-                            debug_print(f"  [2] matched by exe_name")
-                            return self._enrich_from_sysmon(r)
-                # Fallback: most recent write to parent key by any non-system process
-                system_procs = {"sihost.exe", "explorer.exe", "svchost.exe",
-                                "taskhostw.exe", "runtimebroker.exe", "ctfmon.exe",
-                                "userinit.exe", "winlogon.exe", "services.exe"}
-                for r in parent_rows:
-                    if (r["process_name"] or "").lower() not in system_procs:
-                        debug_print(f"  [2] matched by non-system process")
-                        return self._enrich_from_sysmon(r)
-
-        # ── 3. Sysmon image-path match ────────────────────────────────────────
-        # Find any registry write (to any key) by the same executable.
-        if exe_path:
-            row = self.conn.execute("""
-                SELECT * FROM registry_writes
-                WHERE LOWER(process_path) = ?
-                ORDER BY event_time DESC LIMIT 1
-            """, (exe_path.lower(),)).fetchone()
-            debug_print(f"  [3] image full-path match: {'found' if row else 'NONE'}")
-            if row:
-                return self._enrich_from_sysmon(row)
-
-        if exe_name:
-            row = self.conn.execute("""
-                SELECT * FROM registry_writes
-                WHERE LOWER(process_name) = ?
-                ORDER BY event_time DESC LIMIT 1
-            """, (exe_name.lower(),)).fetchone()
-            debug_print(f"  [3] image name match: {'found' if row else 'NONE'}")
-            if row:
-                return self._enrich_from_sysmon(row)
-
-        # ── 4. 4688 fuzzy exe-name fallback ──────────────────────────────────
-        debug_print(f"  [4] falling back to 4688 on exe_name={exe_name!r}")
-        proc = self._find_process(exe_name)
-        if proc:
-            proc["writer_source"] = "4688"
-            return proc
-
-        debug_print(f"  no match found → chain will be inferred")
-        return None
-
-    def _enrich_from_sysmon(self, sysmon_row) -> dict:
-        """
-        Given a registry_writes row, try to cross-reference with a 4688 row
-        for the same PID. If found, return the enriched 4688 data.
-        If not, synthesise a node from Sysmon alone (still attributed, not inferred).
-        """
-        sysmon = dict(sysmon_row)
-        debug_print(f"  sysmon PID={sysmon['pid']} proc={sysmon['process_name']!r} "
-                    f"time={sysmon['event_time']!r}")
-
-        proc = self.conn.execute("""
             SELECT * FROM process_events
-            WHERE  pid = ?
+            WHERE LOWER(process_name) = LOWER(?)
             ORDER BY event_time DESC
             LIMIT 1
-        """, (sysmon["pid"],)).fetchone()
-
-        if proc:
-            debug_print(f"  enriched with 4688 row for PID {sysmon['pid']}")
-            result = dict(proc)
-            result["writer_source"] = "sysmon"
+        """, (exe_name,)).fetchone()
+        if row:
+            result = dict(row)
+            result["writer_source"] = "4688"
             return result
 
-        debug_print(f"  no 4688 row for PID {sysmon['pid']} — synthesising from Sysmon")
-        return {
-            "pid":           sysmon["pid"],
-            "parent_pid":    None,
-            "process_name":  sysmon["process_name"],
-            "process_path":  sysmon["process_path"],
-            "command_line":  "",
-            "user_name":     sysmon["user_name"],
-            "event_time":    sysmon["event_time"],
-            "writer_source": "sysmon",
-        }
+        # Fuzzy match — fallback for truncated names
+        row = self.conn.execute("""
+            SELECT * FROM process_events
+            WHERE process_name LIKE ?
+            ORDER BY event_time DESC
+            LIMIT 1
+        """, (f"%{exe_name}%",)).fetchone()
+        if row:
+            result = dict(row)
+            result["writer_source"] = "4688"
+            return result
+
+        # Indirect writer match — catches reg.exe / powershell / cmd that wrote
+        # the key via command line (e.g. reg add ... /v "EntryName" ...)
+        # Search for any known registry-writing tool whose cmdline references
+        # either the entry name or the value path.
+        entry_name = entry.get("name") or ""
+        reg_path   = entry.get("reg_path") or ""
+        key_fragment = reg_path.split("\\")[-1] if reg_path else ""  # e.g. "Run"
+
+        REGISTRY_WRITERS = ("reg.exe", "powershell.exe", "cmd.exe",
+                            "regedit.exe", "regini.exe", "python.exe",
+                            "pwsh.exe", "wscript.exe", "cscript.exe")
+
+        for tool in REGISTRY_WRITERS:
+            row = self.conn.execute("""
+                SELECT * FROM process_events
+                WHERE LOWER(process_name) = ?
+                  AND (
+                      LOWER(command_line) LIKE ?
+                   OR LOWER(command_line) LIKE ?
+                  )
+                ORDER BY event_time DESC
+                LIMIT 1
+            """, (
+                tool,
+                f"%{entry_name.lower()}%",
+                f"%{exe_path.lower()}%",
+            )).fetchone()
+            if row:
+                result = dict(row)
+                result["writer_source"] = f"4688-indirect({tool})"
+                debug_print(f"  indirect writer match: {tool} for entry={entry_name!r}")
+                return result
+
+        debug_print(f"  no 4688 match for exe_name={exe_name!r}")
+        return None
 
     # ── ATTACK CHAIN BUILDER ───────────────────────────────
     SYSTEM_PROCS = {
@@ -942,16 +647,6 @@ class RegistryCollector:
     }
     SYSTEM_PIDS = {0, 4}
     MAX_DEPTH   = 10
-
-    def _find_process(self, name: str) -> dict | None:
-        """Find the most recent process event matching name (fuzzy)."""
-        row = self.conn.execute("""
-            SELECT * FROM process_events
-            WHERE process_name LIKE ?
-            ORDER BY event_time DESC
-            LIMIT 1
-        """, (f"%{name}%",)).fetchone()
-        return dict(row) if row else None
 
     def _find_parent(self, parent_pid: int, before: str) -> dict | None:
         row = self.conn.execute("""
@@ -977,17 +672,20 @@ class RegistryCollector:
         writer    = self._find_writer(entry)
 
         if not writer:
+            # No process event found — synthesise a leaf node so the
+            # registry entry is always visible in the tree regardless of
+            # whether attribution succeeded.
             placeholder = [{
                 "pid":        0,
-                "name":       exe_name or "unknown",
-                "type":       "malicious",
+                "name":       exe_name or "unknown.exe",
+                "type":       "unknown",
                 "user":       "unknown",
                 "path":       exe_token,
                 "cmdline":    value,
                 "event_time": entry["last_seen"],
                 "depth":      0,
                 "source":     "inferred",
-                "techniques": [],
+                "techniques": tag_process(exe_name, value),
                 "action": {
                     "type":  "reg",
                     "label": f"Wrote {entry['hive']} → {entry['name']}"
@@ -995,7 +693,7 @@ class RegistryCollector:
             }]
             debug_print(
                 f"No writer found for entry {reg_entry_id} ({entry.get('name')!r}). "
-                f"Run: python diagnose_reghunt.py --db {self.db_path} --id {reg_entry_id}"
+                f"Run --events after enabling Audit Process Creation policy."
             )
             self._save_chain(reg_entry_id, placeholder)
             return placeholder
@@ -1140,7 +838,7 @@ class RegistryCollector:
             stats[r["severity"]] = r["cnt"]
         stats["total"]          = sum(stats.values())
         stats["process_events"] = self.conn.execute("SELECT COUNT(*) FROM process_events").fetchone()[0]
-        stats["sysmon_writes"]  = self.conn.execute("SELECT COUNT(*) FROM registry_writes").fetchone()[0]
+        stats["sysmon_writes"]  = 0  # Sysmon integration removed; kept for API compatibility
         return stats
 
     def close(self):
@@ -1158,13 +856,12 @@ if __name__ == "__main__":
 Examples:
   python registry_collector.py --scan
   python registry_collector.py --events --hours 48
-  python registry_collector.py --scan --events --sysmon --chain 1
+  python registry_collector.py --scan --events --chain 1
         """
     )
     parser.add_argument("--scan",      action="store_true", help="Scan registry persistence keys")
     parser.add_argument("--events",    action="store_true", help="Collect Event ID 4688 from Security log")
-    parser.add_argument("--sysmon",    action="store_true", help="Collect Sysmon ID 12/13 registry writes")
-    parser.add_argument("--hours",     type=int, default=24, help="Hours back to pull events (default 24)")
+    parser.add_argument("--hours",     type=int, default=72, help="Hours back to pull events (default 72 — use 168 for 1 week)")
     parser.add_argument("--chain",     type=int, metavar="ID", help="Build attack chain for entry ID")
     parser.add_argument("--chain-all", action="store_true",   help="Build chains for all High/Critical entries")
     parser.add_argument("--db",        default="reghunt.db",  help="Database path (default: reghunt.db)")
@@ -1185,11 +882,6 @@ Examples:
         count = col.collect_process_events(hours_back=args.hours)
         print(f"[+] Stored {count} process creation events")
 
-    if args.sysmon:
-        print(f"\n[*] Collecting Sysmon registry write events (last {args.hours}h)...")
-        count = col.collect_registry_writes(hours_back=args.hours)
-        print(f"[+] Stored {count} Sysmon registry write events")
-
     if args.chain:
         print(f"\n[*] Building attack chain for entry ID {args.chain}...")
         chain = col.build_attack_chain(args.chain)
@@ -1197,7 +889,7 @@ Examples:
             print(f"[+] Chain depth: {len(chain)} nodes")
             for i, node in enumerate(chain):
                 indent    = "  " * i
-                type_icon = {"system": "⚙️ ", "normal": "📦", "suspicious": "⚠️ ", "malicious": "💀"}.get(node["type"], "❓")
+                type_icon = {"system": "⚙️ ", "normal": "📦", "suspicious": "⚠️ ", "malicious": "💀", "unknown": "❓"}.get(node["type"], "❓")
                 src_badge = f"[{node.get('source','?')}]"
                 print(f"{indent}{type_icon} {node['name']} (PID {node['pid']}) {src_badge} — {node['user']}")
                 if node.get("action"):
@@ -1221,7 +913,7 @@ Examples:
             if chain:
                 for i, node in enumerate(chain):
                     indent    = "    " + "  " * i
-                    type_icon = {"system": "⚙️ ", "normal": "📦", "suspicious": "⚠️ ", "malicious": "💀"}.get(node["type"], "❓")
+                    type_icon = {"system": "⚙️ ", "normal": "📦", "suspicious": "⚠️ ", "malicious": "💀", "unknown": "❓"}.get(node["type"], "❓")
                     src_badge = f"[{node.get('source','?')}]"
                     print(f"{indent}{type_icon} {node['name']} (PID {node['pid']}) {src_badge} — {node['user']}")
                     if node.get("action"):
@@ -1230,7 +922,7 @@ Examples:
                 print("    [!] No chain")
 
     stats = col.get_stats()
-    print(f"\n[*] DB Stats: {stats['total']} entries | {stats['process_events']} process events | {stats['sysmon_writes']} sysmon writes")
+    print(f"\n[*] DB Stats: {stats['total']} entries | {stats['process_events']} process events")
     print(f"    Critical: {stats['critical']} | High: {stats['high']} | Medium: {stats['medium']} | Low: {stats['low']}")
 
     col.close()

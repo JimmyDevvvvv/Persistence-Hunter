@@ -37,6 +37,8 @@
       --blue: #4d9eff;
       --blue-dim: rgba(77, 158, 255, 0.09);
       --purple: #a78bfa;
+      --purple-dim: rgba(167, 139, 250, 0.10);
+      --gray-dim: rgba(255, 255, 255, 0.05);
       --mono: 'JetBrains Mono', monospace;
       --display: 'Syne', sans-serif;
     }
@@ -52,7 +54,7 @@
       flex-direction: column;
     }
 
-    /* ── HEADER ─────────────────────────────────────────── */
+    /* ── HEADER ── */
     .header {
       display: flex;
       align-items: center;
@@ -181,7 +183,7 @@
       cursor: not-allowed;
     }
 
-    /* ── LAYOUT ──────────────────────────────────────────── */
+    /* ── LAYOUT ── */
     .layout {
       display: grid;
       grid-template-columns: 290px 1fr;
@@ -189,7 +191,7 @@
       overflow: hidden;
     }
 
-    /* ── LEFT PANEL ──────────────────────────────────────── */
+    /* ── LEFT PANEL ── */
     .left {
       border-right: 1px solid var(--border);
       overflow-y: auto;
@@ -303,12 +305,17 @@
       color: var(--green);
     }
 
+    .sev-unknown {
+      background: var(--gray-dim);
+      color: var(--text3);
+    }
+
     .entry-time {
       font-size: 10px;
       color: var(--text3);
     }
 
-    /* ── MAIN ────────────────────────────────────────────── */
+    /* ── MAIN ── */
     .main {
       display: flex;
       flex-direction: column;
@@ -342,108 +349,128 @@
       border-bottom-color: var(--red);
     }
 
-    /* ── CHAIN VIEW ──────────────────────────────────────── */
-    .chain-view {
+    /* ── TREE VIEW ── */
+    .tree-view {
       flex: 1;
       overflow-y: auto;
       padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
     }
 
-    .chain-header {
+    .tv-header {
       display: flex;
       align-items: center;
       gap: 10px;
       margin-bottom: 20px;
       padding-bottom: 14px;
       border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
     }
 
-    .chain-header-icon {
+    .tv-icon {
       font-size: 18px;
     }
 
-    .chain-header-title {
+    .tv-title {
       font-family: var(--display);
       font-size: 13px;
       font-weight: 600;
       color: var(--text);
     }
 
-    .chain-header-sub {
+    .tv-sub {
       font-size: 10px;
       color: var(--text3);
       margin-top: 2px;
     }
 
-    .chain {
-      display: flex;
-      flex-direction: column;
+    .tv-hint {
+      font-size: 10px;
+      color: var(--text3);
+      margin-left: auto;
     }
 
-    .cnode-row {
-      display: flex;
-      gap: 0;
+    /* ── PROCESS FOREST ── */
+    .forest {
+      flex: 1;
     }
 
-    .cnode-spine {
+    .forest-root-group {
+      margin-bottom: 8px;
+    }
+
+    /* tree row: indent guide + node card */
+    .tree-row {
+      display: flex;
+      align-items: stretch;
+    }
+
+    /* Vertical/horizontal connector guides */
+    .tree-guides {
+      display: flex;
+      flex-shrink: 0;
+    }
+
+    .guide-segment {
+      width: 22px;
+      flex-shrink: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
-      width: 36px;
-      flex-shrink: 0;
     }
 
-    .spine-line {
+    .guide-v {
       width: 1px;
       background: var(--border2);
       flex: 1;
-      min-height: 16px;
+      min-height: 100%;
     }
 
-    .spine-dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      border: 1.5px solid var(--border2);
-      background: var(--bg);
-      margin: 5px 0;
+    .guide-vt {
+      width: 1px;
+      background: var(--border2);
+      height: 50%;
+    }
+
+    /* top half only */
+    .guide-vb {
+      width: 1px;
+      background: var(--border2);
+      flex: 1;
+    }
+
+    /* bottom half only */
+    .guide-h {
+      height: 1px;
+      background: var(--border2);
+      width: 50%;
+      align-self: center;
+      margin-top: 0;
+    }
+
+    .guide-space {
+      width: 22px;
       flex-shrink: 0;
     }
 
-    .spine-dot.d-red {
-      border-color: var(--red);
-      background: var(--red-dim);
-    }
-
-    .spine-dot.d-amber {
-      border-color: var(--amber);
-      background: var(--amber-dim);
-    }
-
-    .spine-dot.d-blue {
-      border-color: var(--blue);
-      background: var(--blue-dim);
-    }
-
-    .spine-dot.d-gray {
-      border-color: var(--text3);
-      background: var(--bg);
-    }
-
-    .cnode {
+    /* Node card */
+    .tree-node {
       flex: 1;
-      margin-bottom: 3px;
       border: 1px solid var(--border2);
-      border-radius: 8px;
-      padding: 11px 14px;
+      border-radius: 7px;
+      padding: 9px 12px;
+      margin: 2px 0 2px 0;
       background: var(--surface2);
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.12s;
       position: relative;
       overflow: hidden;
+      min-width: 0;
     }
 
-    .cnode::before {
+    .tree-node::before {
       content: '';
       position: absolute;
       left: 0;
@@ -452,127 +479,237 @@
       width: 3px;
     }
 
-    .cnode.t-system ::before,
-    .cnode.t-system::before {
+    .tree-node.t-system ::before,
+    .tree-node.t-system::before {
       background: var(--text3);
     }
 
-    .cnode.t-normal ::before,
-    .cnode.t-normal::before {
+    .tree-node.t-normal ::before,
+    .tree-node.t-normal::before {
       background: var(--blue);
     }
 
-    .cnode.t-suspicious::before {
+    .tree-node.t-suspicious::before {
       background: var(--amber);
     }
 
-    .cnode.t-malicious ::before {
+    .tree-node.t-malicious ::before {
       background: var(--red);
     }
 
-    .cnode:hover {
+    .tree-node.t-unknown ::before {
+      background: var(--purple);
+    }
+
+    .tree-node:hover {
       background: var(--surface3);
     }
 
-    .cnode.is-writer {
-      background: rgba(255, 71, 87, 0.07);
-      border-color: rgba(255, 71, 87, 0.2);
+    .tree-node.selected {
+      outline: 1px solid rgba(77, 158, 255, 0.35);
+      background: var(--surface3);
     }
 
-    .cn-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 5px;
+    .tree-node.has-critical {
+      border-color: rgba(255, 71, 87, 0.3);
     }
 
-    .cn-name {
-      font-weight: 600;
-      font-size: 13px;
+    .tree-node.has-high {
+      border-color: rgba(255, 170, 0, 0.25);
     }
 
-    .cn-pid {
-      font-size: 10px;
-      color: var(--text3);
-    }
-
-    .cn-meta {
-      display: flex;
-      gap: 14px;
-      flex-wrap: wrap;
-      margin-bottom: 0;
-    }
-
-    .cn-meta-item {
-      font-size: 11px;
-      color: var(--text2);
-    }
-
-    .cn-meta-label {
-      color: var(--text3);
-    }
-
-    .cn-action {
-      margin-top: 8px;
-      padding: 5px 9px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 500;
+    /* Node header */
+    .tn-head {
       display: flex;
       align-items: center;
       gap: 6px;
+      margin-bottom: 4px;
     }
 
-    .ca-reg {
-      background: rgba(255, 71, 87, 0.09);
-      border: 1px solid rgba(255, 71, 87, 0.22);
-      color: var(--red);
+    .tn-icon {
+      font-size: 12px;
+      flex-shrink: 0;
     }
 
-    .ca-exec {
-      background: rgba(255, 170, 0, 0.08);
-      border: 1px solid rgba(255, 170, 0, 0.2);
-      color: var(--amber);
+    .tn-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .cn-cmd {
-      margin-top: 6px;
-      padding: 5px 8px;
-      background: rgba(0, 0, 0, 0.35);
-      border: 1px solid var(--border);
-      border-radius: 4px;
+    .tn-pid {
+      font-size: 10px;
+      color: var(--text3);
+      flex-shrink: 0;
+    }
+
+    .tn-src {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+    }
+
+    .tn-src.s-4688 {
+      background: var(--blue-dim);
+      color: var(--blue);
+      border: 1px solid rgba(77, 158, 255, 0.2);
+    }
+
+    .tn-src.s-inferred {
+      background: var(--purple-dim);
+      color: var(--purple);
+      border: 1px solid rgba(167, 139, 250, 0.2);
+    }
+
+    /* Node meta */
+    .tn-meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .tn-meta-item {
       font-size: 10px;
       color: var(--text2);
-      word-break: break-all;
-      line-height: 1.55;
     }
 
-    /* ── EMPTY / LOADING ─────────────────────────────────── */
-    .placeholder {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      gap: 10px;
+    .tn-meta-lbl {
       color: var(--text3);
     }
 
-    .placeholder-icon {
-      font-size: 36px;
-      opacity: 0.25;
+    /* Registry leaf */
+    .reg-leaf {
+      margin: 2px 0 2px 0;
+      flex: 1;
+      border: 1px solid rgba(255, 71, 87, 0.2);
+      border-radius: 7px;
+      padding: 9px 12px;
+      background: rgba(255, 71, 87, 0.05);
+      cursor: pointer;
+      transition: background 0.12s;
+      position: relative;
+      overflow: hidden;
     }
 
-    .placeholder-text {
+    .reg-leaf::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--red);
+    }
+
+    .reg-leaf.sev-high::before {
+      background: var(--amber);
+    }
+
+    .reg-leaf.sev-medium::before {
+      background: var(--blue);
+    }
+
+    .reg-leaf.sev-low::before {
+      background: var(--green);
+    }
+
+    .reg-leaf:hover {
+      background: rgba(255, 71, 87, 0.09);
+    }
+
+    .reg-leaf.selected {
+      outline: 1px solid rgba(77, 158, 255, 0.35);
+    }
+
+    .rl-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .rl-icon {
       font-size: 12px;
+      flex-shrink: 0;
     }
 
-    /* ── DETAIL STRIP ─────────────────────────────────────── */
+    .rl-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .rl-hive {
+      font-size: 10px;
+      color: var(--text3);
+      margin-bottom: 4px;
+    }
+
+    .rl-val {
+      font-size: 10px;
+      color: var(--text2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .rl-foot {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+
+    /* MITRE technique tags */
+    .mitre-tag {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: var(--purple-dim);
+      color: var(--purple);
+      border: 1px solid rgba(167, 139, 250, 0.2);
+      letter-spacing: 0.04em;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .mitre-tag:hover {
+      background: rgba(167, 139, 250, 0.2);
+    }
+
+    /* ── DETAIL STRIP ── */
     .detail-strip {
       border-top: 1px solid var(--border);
       background: var(--surface);
-      padding: 12px 20px;
+      padding: 0;
       flex-shrink: 0;
+      transition: max-height 0.2s ease;
+    }
+
+    .detail-strip-inner {
+      padding: 12px 20px;
+    }
+
+    .detail-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
     }
 
     .detail-label {
@@ -581,13 +718,27 @@
       letter-spacing: 0.1em;
       color: var(--text3);
       text-transform: uppercase;
-      margin-bottom: 10px;
+    }
+
+    .detail-close {
+      font-size: 14px;
+      color: var(--text3);
+      cursor: pointer;
+      line-height: 1;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    .detail-close:hover {
+      color: var(--text2);
+      background: var(--surface2);
     }
 
     .detail-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 10px;
+      margin-bottom: 10px;
     }
 
     .di-label {
@@ -614,7 +765,60 @@
       color: var(--green);
     }
 
-    /* ── RAW TABLE ───────────────────────────────────────── */
+    .di-val.purple {
+      color: var(--purple);
+    }
+
+    /* MITRE section in detail strip */
+    .detail-mitre {
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      margin-top: 2px;
+    }
+
+    .detail-mitre-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--text3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .detail-mitre-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .mitre-detail-tag {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px 4px 6px;
+      border-radius: 4px;
+      background: var(--purple-dim);
+      border: 1px solid rgba(167, 139, 250, 0.2);
+      text-decoration: none;
+    }
+
+    .mitre-detail-tag:hover {
+      background: rgba(167, 139, 250, 0.2);
+    }
+
+    .mitre-detail-id {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--purple);
+      font-family: var(--mono);
+    }
+
+    .mitre-detail-name {
+      font-size: 10px;
+      color: var(--text2);
+    }
+
+    /* ── RAW TABLE ── */
     .raw-view {
       flex: 1;
       overflow: auto;
@@ -657,7 +861,7 @@
       color: var(--text2);
     }
 
-    /* ── TIMELINE ─────────────────────────────────────────── */
+    /* ── TIMELINE ── */
     .tl-view {
       flex: 1;
       overflow-y: auto;
@@ -739,7 +943,27 @@
       text-overflow: ellipsis;
     }
 
-    /* ── SCROLLBARS ──────────────────────────────────────── */
+    /* ── EMPTY / LOADING ── */
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 10px;
+      color: var(--text3);
+    }
+
+    .placeholder-icon {
+      font-size: 36px;
+      opacity: 0.25;
+    }
+
+    .placeholder-text {
+      font-size: 12px;
+    }
+
+    /* ── SCROLLBARS ── */
     ::-webkit-scrollbar {
       width: 3px;
       height: 3px;
@@ -771,13 +995,13 @@
       <span class="logo-sub">Registry Persistence Hunter</span>
     </div>
     <div class="header-right">
-      <div class="hdr-stat red" id="hdr-critical">
+      <div class="hdr-stat red">
         <div class="hdr-stat-dot pulse"></div> <span id="cnt-critical">–</span> Critical
       </div>
-      <div class="hdr-stat amber" id="hdr-high">
+      <div class="hdr-stat amber">
         <div class="hdr-stat-dot"></div> <span id="cnt-high">–</span> High
       </div>
-      <div class="hdr-stat green" id="hdr-live">
+      <div class="hdr-stat green">
         <div class="hdr-stat-dot pulse"></div> Live
       </div>
       <button class="scan-btn" id="scanBtn" onclick="triggerScan()">↺ Re-Scan</button>
@@ -789,7 +1013,7 @@
 
     <!-- LEFT: entry list -->
     <div class="left">
-      <div class="filter-bar" id="filterBar">
+      <div class="filter-bar">
         <button class="filt on" onclick="setFilter(this,'ALL')">ALL</button>
         <button class="filt" onclick="setFilter(this,'critical')">Critical</button>
         <button class="filt" onclick="setFilter(this,'high')">High</button>
@@ -807,34 +1031,34 @@
 
     <!-- MAIN -->
     <div class="main">
-
       <div class="tabs">
-        <div class="tab on" id="tab-chain" onclick="switchTab('chain')">Attack Chain</div>
+        <div class="tab on" id="tab-tree" onclick="switchTab('tree')">Process Tree</div>
         <div class="tab" id="tab-raw" onclick="switchTab('raw')">Raw Entries</div>
         <div class="tab" id="tab-timeline" onclick="switchTab('timeline')">Timeline</div>
       </div>
 
-      <!-- CHAIN -->
-      <div id="view-chain" class="chain-view">
-        <div class="placeholder" id="chain-placeholder">
-          <div class="placeholder-icon">🔗</div>
-          <div class="placeholder-text">Select a registry entry to view its attack chain</div>
+      <!-- TREE VIEW -->
+      <div id="view-tree" class="tree-view">
+        <div class="placeholder" id="tree-placeholder">
+          <div class="placeholder-icon">🌲</div>
+          <div class="placeholder-text">Select a registry entry to trace its process tree</div>
         </div>
-        <div id="chain-content" class="hidden">
-          <div class="chain-header">
-            <div class="chain-header-icon" id="ch-icon">💀</div>
+        <div id="tree-content" class="hidden" style="display:flex;flex-direction:column;height:100%">
+          <div class="tv-header">
+            <div class="tv-icon" id="tv-icon">💀</div>
             <div>
-              <div class="chain-header-title" id="ch-title">–</div>
-              <div class="chain-header-sub" id="ch-sub">–</div>
+              <div class="tv-title" id="tv-title">–</div>
+              <div class="tv-sub" id="tv-sub">–</div>
             </div>
+            <div class="tv-hint" id="tv-hint"></div>
           </div>
-          <div class="chain" id="chainNodes"></div>
+          <div class="forest" id="forestContainer"></div>
         </div>
       </div>
 
-      <!-- RAW -->
+      <!-- RAW TABLE -->
       <div id="view-raw" class="raw-view hidden">
-        <table class="raw-table" id="rawTable">
+        <table class="raw-table">
           <thead>
             <tr>
               <th>Name</th>
@@ -858,29 +1082,39 @@
 
       <!-- DETAIL STRIP -->
       <div class="detail-strip hidden" id="detailStrip">
-        <div class="detail-label">Selected Node</div>
-        <div class="detail-grid" id="detailGrid"></div>
+        <div class="detail-strip-inner">
+          <div class="detail-top">
+            <div class="detail-label" id="detail-kind">Selected Node</div>
+            <span class="detail-close" onclick="closeDetail()">✕</span>
+          </div>
+          <div class="detail-grid" id="detailGrid"></div>
+          <div class="detail-mitre hidden" id="detailMitre">
+            <div class="detail-mitre-label">MITRE ATT&amp;CK Techniques</div>
+            <div class="detail-mitre-list" id="detailMitreList"></div>
+          </div>
+        </div>
       </div>
-
     </div>
   </div>
 
   <script>
     const API = 'http://localhost:8000';
 
-    // ── STATE ──────────────────────────────────────────────────
+    // ── STATE ──
     let allEntries = [];
+    let chainCache = {};   // entry_id → chain array
     let activeId = null;
-    let activeTab = 'chain';
+    let activeTab = 'tree';
     let filter = 'ALL';
+    let selectedNodeEl = null;
 
-    // ── BOOT ──────────────────────────────────────────────────
+    // ── BOOT ──
     async function init() {
       await loadStats();
       await loadEntries();
     }
 
-    // ── STATS ──────────────────────────────────────────────────
+    // ── STATS ──
     async function loadStats() {
       try {
         const s = await api('/api/stats');
@@ -889,7 +1123,7 @@
       } catch (e) { console.warn('stats error', e); }
     }
 
-    // ── ENTRIES ────────────────────────────────────────────────
+    // ── ENTRIES ──
     async function loadEntries() {
       try {
         const data = await api('/api/entries?limit=200');
@@ -897,7 +1131,6 @@
         renderEntryList();
         renderRawTable();
         renderTimeline();
-        // Auto-select first suspicious entry
         const first = allEntries.find(e => e.severity === 'critical' || e.severity === 'high') || allEntries[0];
         if (first) selectEntry(first.id);
       } catch (e) {
@@ -906,19 +1139,19 @@
       }
     }
 
-    // ── RENDER ENTRY LIST ──────────────────────────────────────
+    // ── RENDER ENTRY LIST ──
     function renderEntryList() {
       const visible = filteredEntries();
       const html = visible.map(e => `
-    <div class="entry ${activeId === e.id ? 'active' : ''}" onclick="selectEntry(${e.id})">
-      <div class="entry-name">${escHtml(e.name)}</div>
-      <div class="entry-hive">${e.hive}</div>
-      <div class="entry-footer">
-        <span class="sev sev-${e.severity}">${e.severity}</span>
-        <span class="entry-time">${(e.last_seen || '').slice(11, 19)}</span>
-      </div>
-    </div>
-  `).join('');
+        <div class="entry ${activeId === e.id ? 'active' : ''}" onclick="selectEntry(${e.id})">
+          <div class="entry-name">${escHtml(e.name)}</div>
+          <div class="entry-hive">${e.hive}</div>
+          <div class="entry-footer">
+            <span class="sev sev-${e.severity}">${e.severity}</span>
+            <span class="entry-time">${(e.last_seen || '').slice(11, 19)}</span>
+          </div>
+        </div>
+      `).join('');
       document.getElementById('entryList').innerHTML = html ||
         `<div class="placeholder" style="padding:24px"><div class="placeholder-text">No entries match this filter</div></div>`;
     }
@@ -930,147 +1163,426 @@
       return allEntries.filter(e => e.hive.toUpperCase().includes(filter.toUpperCase()));
     }
 
-    // ── SELECT ENTRY ───────────────────────────────────────────
+    // ── SELECT ENTRY ──
     async function selectEntry(id) {
       activeId = id;
       renderEntryList();
       const entry = allEntries.find(e => e.id === id);
       if (!entry) return;
 
-      // Update chain header
       const icon = { critical: '💀', high: '⚠️', medium: '🔵', low: '✅' }[entry.severity] || '🔍';
-      document.getElementById('ch-icon').textContent = icon;
-      document.getElementById('ch-title').textContent = entry.name;
-      document.getElementById('ch-sub').textContent = `${entry.hive}  ·  ${entry.value_data?.slice(0, 80)}${entry.value_data?.length > 80 ? '…' : ''}`;
+      document.getElementById('tv-icon').textContent = icon;
+      document.getElementById('tv-title').textContent = entry.name;
+      document.getElementById('tv-sub').textContent =
+        `${entry.hive}  ·  ${(entry.value_data || '').slice(0, 80)}${(entry.value_data || '').length > 80 ? '…' : ''}`;
 
-      document.getElementById('chain-placeholder').classList.add('hidden');
-      document.getElementById('chain-content').classList.remove('hidden');
-      document.getElementById('chainNodes').innerHTML =
-        `<div class="placeholder" style="height:80px"><div class="placeholder-text">Building chain...</div></div>`;
+      document.getElementById('tree-placeholder').classList.add('hidden');
+      const tc = document.getElementById('tree-content');
+      tc.classList.remove('hidden');
+      tc.style.display = 'flex';
+      document.getElementById('forestContainer').innerHTML =
+        `<div class="placeholder" style="height:100px"><div class="placeholder-text">Building chain…</div></div>`;
 
       try {
-        const data = await api(`/api/entries/${id}/chain`);
-        renderChain(data.chain || [], entry);
+        let chain;
+        if (chainCache[id]) {
+          chain = chainCache[id];
+        } else {
+          const data = await api(`/api/entries/${id}/chain`);
+          chain = data.chain || [];
+          chainCache[id] = chain;
+        }
+        renderForest(chain, entry);
       } catch (e) {
-        renderChain([], entry);
+        renderForest([], entry);
       }
     }
 
-    // ── RENDER CHAIN ───────────────────────────────────────────
-    function renderChain(chain, entry) {
-      const container = document.getElementById('chainNodes');
+    // ── RENDER FOREST ──
+    // Renders the chain as a branching process tree with registry leaves.
+    // The chain from the API is a flat array ordered root → writer.
+    // We reconstruct the tree by parent_pid matching so siblings appear as branches.
+    function renderForest(chain, entry) {
+      const container = document.getElementById('forestContainer');
+      container.innerHTML = '';
 
       if (!chain.length) {
-        container.innerHTML = `<div class="placeholder" style="height:100px"><div class="placeholder-text">No process chain found in event log — re-run with --events after enabling audit policy</div></div>`;
+        container.innerHTML = `<div class="placeholder" style="height:120px">
+          <div class="placeholder-text">No process chain found — run --events after enabling Audit Process Creation</div>
+        </div>`;
         return;
       }
 
-      container.innerHTML = '';
-      chain.forEach((node, i) => {
-        const isFirst = i === 0;
-        const isLast = i === chain.length - 1;
-        const dotCls = { malicious: 'd-red', suspicious: 'd-amber', normal: 'd-blue', system: 'd-gray' }[node.type] || 'd-gray';
-        const isWriter = !!node.action;
+      // Update hint badge in header
+      const source = chain[chain.length - 1]?.source || '?';
+      const hintEl = document.getElementById('tv-hint');
+      if (source === 'inferred') {
+        hintEl.innerHTML = `<span class="tn-src s-inferred">inferred</span>`;
+      } else {
+        hintEl.innerHTML = `<span class="tn-src s-4688">4688</span>`;
+      }
 
-        const row = document.createElement('div');
-        row.className = 'cnode-row';
-
-        // Spine
-        const spine = document.createElement('div');
-        spine.className = 'cnode-spine';
-        if (!isFirst) spine.innerHTML += `<div class="spine-line"></div>`;
-        spine.innerHTML += `<div class="spine-dot ${dotCls}"></div>`;
-        if (!isLast) spine.innerHTML += `<div class="spine-line"></div>`;
-
-        // Node
-        const nd = document.createElement('div');
-        nd.className = `cnode t-${node.type} ${isWriter ? 'is-writer' : ''}`;
-        nd.onclick = () => showDetail(node, entry);
-
-        let actionHtml = '';
-        if (node.action) {
-          const cls = node.action.type === 'reg' ? 'ca-reg' : 'ca-exec';
-          const icon = node.action.type === 'reg' ? '⚡' : '▶';
-          actionHtml = `<div class="cn-action ${cls}">${icon} ${escHtml(node.action.label)}</div>`;
-        }
-
-        const cmdHtml = (node.cmdline && node.type !== 'system')
-          ? `<div class="cn-cmd">${escHtml(node.cmdline.slice(0, 160))}${node.cmdline.length > 160 ? '…' : ''}</div>`
-          : '';
-
-        nd.innerHTML = `
-      <div class="cn-head">
-        <span class="cn-name">${escHtml(node.name)}</span>
-        <span class="cn-pid">PID ${node.pid}</span>
-      </div>
-      <div class="cn-meta">
-        <div class="cn-meta-item"><span class="cn-meta-label">user </span>${escHtml(node.user || '–')}</div>
-        ${node.path ? `<div class="cn-meta-item"><span class="cn-meta-label">path </span>${escHtml(node.path.split('\\').slice(-1)[0])}</div>` : ''}
-      </div>
-      ${actionHtml}${cmdHtml}
-    `;
-
-        row.appendChild(spine);
-        row.appendChild(nd);
-        container.appendChild(row);
+      // Build tree structure: each node can have children (processes) and regLeaves
+      // chain[0] = root, chain[last] = writer
+      const nodeMap = {};
+      chain.forEach((n, i) => {
+        nodeMap[i] = { ...n, _idx: i, _children: [], _regLeaves: [] };
       });
 
-      // Auto-show detail of last node
-      showDetail(chain[chain.length - 1], entry);
+      // Link children by sequential parent-child (chain is already ordered root→writer)
+      // We attach each node as child of the previous one (the chain is linear from API)
+      // If the chain has branching (future), parent_pid is the real key
+      const roots = [];
+      for (let i = 0; i < chain.length; i++) {
+        if (i === 0) {
+          roots.push(nodeMap[i]);
+        } else {
+          // Find parent by pid match in earlier nodes
+          let parentIdx = -1;
+          for (let j = i - 1; j >= 0; j--) {
+            if (chain[j].pid === chain[i].pid) continue; // skip self
+            // The chain is built root→writer so node i-1 is always the parent
+            parentIdx = i - 1;
+            break;
+          }
+          if (parentIdx >= 0) {
+            nodeMap[parentIdx]._children.push(nodeMap[i]);
+          } else {
+            roots.push(nodeMap[i]);
+          }
+        }
+      }
+
+      // Attach the registry leaf to the last node (the writer)
+      const writerIdx = chain.length - 1;
+      nodeMap[writerIdx]._regLeaves.push(entry);
+
+      // Render each root tree
+      roots.forEach(root => {
+        const treeEl = document.createElement('div');
+        treeEl.className = 'forest-root-group';
+        renderTreeNode(root, treeEl, [], entry);
+        container.appendChild(treeEl);
+      });
+
+      // Auto-show detail for the writer node (last in chain)
+      const writerNode = nodeMap[writerIdx];
+      showNodeDetail(writerNode, entry, true);
     }
 
-    // ── DETAIL STRIP ───────────────────────────────────────────
-    function showDetail(node, entry) {
+    // Recursively render a node and its children/leaves
+    // prefixGuides: array of booleans — true = draw vertical line, false = draw space
+    function renderTreeNode(node, container, prefixGuides, entry) {
+      const hasChildren = node._children.length > 0;
+      const hasLeaves = node._regLeaves.length > 0;
+
+      // ── Process node row ──
+      const row = document.createElement('div');
+      row.className = 'tree-row';
+
+      // Build indent guides for this row
+      const guidesEl = buildGuides(prefixGuides, true);
+      row.appendChild(guidesEl);
+
+      // Node card
+      const card = buildProcessCard(node, entry);
+      card.addEventListener('click', () => {
+        setSelected(card);
+        showNodeDetail(node, entry, false);
+      });
+      row.appendChild(card);
+      container.appendChild(row);
+
+      // ── Children and leaves ──
+      const totalSubItems = node._children.length + node._regLeaves.length;
+      let subItemIdx = 0;
+
+      // Render child process nodes first
+      node._children.forEach((child, ci) => {
+        subItemIdx++;
+        const isLastSubItem = (subItemIdx === totalSubItems);
+        // For child rows, prefix = parent prefixes + (isLastSubItem ? false : true)
+        const childPrefix = [...prefixGuides, !isLastSubItem];
+        renderTreeNode(child, container, childPrefix, entry);
+      });
+
+      // Render registry leaves
+      node._regLeaves.forEach((leaf, li) => {
+        subItemIdx++;
+        const isLastSubItem = (subItemIdx === totalSubItems);
+        const leafPrefix = [...prefixGuides, !isLastSubItem];
+
+        const leafRow = document.createElement('div');
+        leafRow.className = 'tree-row';
+
+        const leafGuides = buildGuides(leafPrefix, true);
+        leafRow.appendChild(leafGuides);
+
+        const leafCard = buildRegLeaf(leaf, node);
+        leafCard.addEventListener('click', () => {
+          setSelected(leafCard);
+          showLeafDetail(leaf, node);
+        });
+        leafRow.appendChild(leafCard);
+        container.appendChild(leafRow);
+      });
+    }
+
+    // Build the indent guide column for a row
+    // prefixGuides: for each ancestor level, true = vertical line visible, false = empty space
+    // drawBranch: whether to draw the ├─ or └─ connector for this node itself
+    function buildGuides(prefixGuides, drawBranch) {
+      const wrap = document.createElement('div');
+      wrap.className = 'tree-guides';
+
+      prefixGuides.forEach((hasLine, i) => {
+        const isLast = (i === prefixGuides.length - 1);
+        const seg = document.createElement('div');
+        seg.className = 'guide-segment';
+
+        if (!isLast) {
+          // Ancestor columns: just vertical line or empty space
+          if (hasLine) {
+            const v = document.createElement('div');
+            v.className = 'guide-v';
+            seg.appendChild(v);
+          }
+        } else {
+          // Immediate parent column: draw ├─ or └─
+          // Top half: vertical line always (connects to sibling above)
+          const vTop = document.createElement('div');
+          vTop.className = 'guide-vt';
+          seg.appendChild(vTop);
+
+          const hRow = document.createElement('div');
+          hRow.style.display = 'flex';
+          hRow.style.alignItems = 'center';
+          hRow.style.height = '0';
+
+          const h = document.createElement('div');
+          h.className = 'guide-h';
+          hRow.appendChild(h);
+          seg.appendChild(hRow);
+
+          if (hasLine) {
+            const vBot = document.createElement('div');
+            vBot.className = 'guide-vb';
+            seg.appendChild(vBot);
+          }
+        }
+        wrap.appendChild(seg);
+      });
+
+      return wrap;
+    }
+
+    function buildProcessCard(node, entry) {
+      const card = document.createElement('div');
+      const typeClass = node.type || 'normal';
+      card.className = `tree-node t-${typeClass}`;
+
+      // Severity rollup from descendants — highlight border if this node leads to critical/high
+      const worstDescendant = getWorstDescendantSeverity(node, entry);
+      if (worstDescendant === 'critical') card.classList.add('has-critical');
+      else if (worstDescendant === 'high') card.classList.add('has-high');
+
+      const typeIcon = {
+        system: '⚙️',
+        normal: '📦',
+        suspicious: '⚠️',
+        malicious: '💀',
+        unknown: '❓',
+      }[typeClass] || '📦';
+
+      const srcClass = node.source === 'inferred' ? 's-inferred' : 's-4688';
+      const srcLabel = node.source === 'inferred' ? 'inferred' : '4688';
+
+      const metaItems = [];
+      if (node.user) metaItems.push(`<span class="tn-meta-item"><span class="tn-meta-lbl">user </span>${escHtml(node.user)}</span>`);
+      if (node.path) metaItems.push(`<span class="tn-meta-item"><span class="tn-meta-lbl">path </span>${escHtml(node.path.split('\\').pop())}</span>`);
+      if (node.event_time) metaItems.push(`<span class="tn-meta-item"><span class="tn-meta-lbl">time </span>${node.event_time.slice(0, 19).replace('T', ' ')}</span>`);
+
+      // Inline MITRE tags on the card (just IDs, full name in detail strip)
+      const mitreHtml = (node.techniques || []).map(t =>
+        `<a class="mitre-tag" href="https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/" target="_blank" onclick="event.stopPropagation()">${t.id}</a>`
+      ).join('');
+
+      card.innerHTML = `
+        <div class="tn-head">
+          <span class="tn-icon">${typeIcon}</span>
+          <span class="tn-name">${escHtml(node.name)}</span>
+          <span class="tn-pid">PID ${node.pid}</span>
+          <span class="tn-src ${srcClass}">${srcLabel}</span>
+        </div>
+        <div class="tn-meta">${metaItems.join('')}</div>
+        ${node.cmdline && node.type !== 'system' ? `<div class="cn-cmd" style="margin-top:6px;padding:4px 7px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--text2);word-break:break-all;line-height:1.55">${escHtml(node.cmdline.slice(0, 180))}${node.cmdline.length > 180 ? '…' : ''}</div>` : ''}
+        ${mitreHtml ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${mitreHtml}</div>` : ''}
+      `;
+      return card;
+    }
+
+    function buildRegLeaf(leaf, writerNode) {
+      const card = document.createElement('div');
+      const sevClass = `sev-${leaf.severity}`;
+      card.className = `reg-leaf ${sevClass}`;
+
+      const sevIcon = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' }[leaf.severity] || '⚪';
+
+      // Inline MITRE tags
+      const techniques = leaf.techniques || [];
+      const mitreHtml = techniques.map(t =>
+        `<a class="mitre-tag" href="https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/" target="_blank" onclick="event.stopPropagation()">${t.id}</a>`
+      ).join('');
+
+      card.innerHTML = `
+        <div class="rl-head">
+          <span class="rl-icon">🔑</span>
+          <span class="rl-name">${escHtml(leaf.name)}</span>
+          <span class="sev sev-${leaf.severity}">${leaf.severity}</span>
+        </div>
+        <div class="rl-hive">${escHtml(leaf.hive)}</div>
+        <div class="rl-val">${escHtml((leaf.value_data || '').slice(0, 120))}</div>
+        <div class="rl-foot">
+          ${mitreHtml}
+        </div>
+      `;
+      return card;
+    }
+
+    // Walk descendants to find worst severity bubble-up
+    function getWorstDescendantSeverity(node, entry) {
+      if (node._regLeaves && node._regLeaves.length > 0) {
+        const sevs = node._regLeaves.map(l => l.severity);
+        if (sevs.includes('critical')) return 'critical';
+        if (sevs.includes('high')) return 'high';
+      }
+      for (const child of (node._children || [])) {
+        const cs = getWorstDescendantSeverity(child, entry);
+        if (cs === 'critical') return 'critical';
+        if (cs === 'high') return 'high';
+      }
+      return null;
+    }
+
+    // ── SELECTION ──
+    function setSelected(el) {
+      if (selectedNodeEl) selectedNodeEl.classList.remove('selected');
+      selectedNodeEl = el;
+      el.classList.add('selected');
+    }
+
+    // ── DETAIL STRIP: process node ──
+    function showNodeDetail(node, entry, isWriter) {
       document.getElementById('detailStrip').classList.remove('hidden');
-      const iocClass = (entry.ioc_notes && !entry.ioc_notes.includes('known-good') && !entry.ioc_notes.includes('None')) ? 'red' : 'green';
+      document.getElementById('detail-kind').textContent = isWriter ? 'Writer Process' : 'Process Node';
+
+      const typeColor = { malicious: 'red', suspicious: 'amber', normal: '', system: '', unknown: 'purple' }[node.type] || '';
+
       document.getElementById('detailGrid').innerHTML = `
-    <div><div class="di-label">Process</div><div class="di-val">${escHtml(node.name)}</div></div>
-    <div><div class="di-label">PID</div><div class="di-val">${node.pid}</div></div>
-    <div><div class="di-label">Severity</div><div class="di-val ${entry.severity === 'critical' || entry.severity === 'high' ? 'red' : 'green'}">${entry.severity.toUpperCase()}</div></div>
-    <div><div class="di-label">Hive</div><div class="di-val">${escHtml(entry.hive)}</div></div>
-    <div><div class="di-label">IOC Notes</div><div class="di-val ${iocClass}">${escHtml(entry.ioc_notes || '–')}</div></div>
-    <div><div class="di-label">First Seen</div><div class="di-val">${(entry.first_seen || '–').replace('T', ' ').slice(0, 19)}</div></div>
-    <div><div class="di-label">User</div><div class="di-val">${escHtml(node.user || '–')}</div></div>
-    <div><div class="di-label">Hash ID</div><div class="di-val">${(entry.hash_id || '–').slice(0, 12)}…</div></div>
-  `;
+        <div><div class="di-label">Process</div><div class="di-val">${escHtml(node.name)}</div></div>
+        <div><div class="di-label">PID</div><div class="di-val">${node.pid || '–'}</div></div>
+        <div><div class="di-label">Type</div><div class="di-val ${typeColor}">${(node.type || '').toUpperCase()}</div></div>
+        <div><div class="di-label">Source</div><div class="di-val ${node.source === 'inferred' ? 'purple' : ''}">${node.source || '–'}</div></div>
+        <div><div class="di-label">User</div><div class="di-val">${escHtml(node.user || '–')}</div></div>
+        <div><div class="di-label">Path</div><div class="di-val">${escHtml(node.path || '–')}</div></div>
+        <div><div class="di-label">Event Time</div><div class="di-val">${(node.event_time || '–').slice(0, 19).replace('T', ' ')}</div></div>
+        <div><div class="di-label">Command Line</div><div class="di-val">${escHtml((node.cmdline || '–').slice(0, 80))}</div></div>
+      `;
+
+      renderMitrePanel(node.techniques || []);
     }
 
-    // ── RAW TABLE ──────────────────────────────────────────────
+    // ── DETAIL STRIP: registry leaf ──
+    function showLeafDetail(leaf, writerNode) {
+      document.getElementById('detailStrip').classList.remove('hidden');
+      document.getElementById('detail-kind').textContent = 'Registry Persistence Entry';
+
+      const sevColor = { critical: 'red', high: 'amber', medium: '', low: 'green' }[leaf.severity] || '';
+      const iocColor = (leaf.ioc_notes && !leaf.ioc_notes.includes('known-good')) ? 'red' : 'green';
+
+      document.getElementById('detailGrid').innerHTML = `
+        <div><div class="di-label">Name</div><div class="di-val">${escHtml(leaf.name)}</div></div>
+        <div><div class="di-label">Severity</div><div class="di-val ${sevColor}">${(leaf.severity || '').toUpperCase()}</div></div>
+        <div><div class="di-label">Hive</div><div class="di-val">${escHtml(leaf.hive || '–')}</div></div>
+        <div><div class="di-label">Hash ID</div><div class="di-val">${(leaf.hash_id || '–').slice(0, 12)}…</div></div>
+        <div><div class="di-label">IOC Notes</div><div class="di-val ${iocColor}">${escHtml(leaf.ioc_notes || '–')}</div></div>
+        <div><div class="di-label">First Seen</div><div class="di-val">${(leaf.first_seen || '–').slice(0, 19).replace('T', ' ')}</div></div>
+        <div><div class="di-label">Last Seen</div><div class="di-val">${(leaf.last_seen || '–').slice(0, 19).replace('T', ' ')}</div></div>
+        <div><div class="di-label">Writer</div><div class="di-val">${escHtml(writerNode?.name || 'unknown')}</div></div>
+      `;
+
+      renderMitrePanel(leaf.techniques || []);
+    }
+
+    function closeDetail() {
+      document.getElementById('detailStrip').classList.add('hidden');
+      if (selectedNodeEl) selectedNodeEl.classList.remove('selected');
+      selectedNodeEl = null;
+    }
+
+    // ── MITRE PANEL ──
+    function renderMitrePanel(techniques) {
+      const panel = document.getElementById('detailMitre');
+      const listEl = document.getElementById('detailMitreList');
+
+      if (!techniques || techniques.length === 0) {
+        panel.classList.add('hidden');
+        return;
+      }
+
+      panel.classList.remove('hidden');
+
+      // Deduplicate by id
+      const seen = new Set();
+      const unique = techniques.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
+
+      listEl.innerHTML = unique.map(t => {
+        const url = `https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/`;
+        return `
+          <a class="mitre-detail-tag" href="${url}" target="_blank">
+            <span class="mitre-detail-id">${escHtml(t.id)}</span>
+            <span class="mitre-detail-name">${escHtml(t.name)}</span>
+          </a>
+        `;
+      }).join('');
+    }
+
+    // ── RAW TABLE ──
     function renderRawTable() {
       const rows = allEntries.map(e => `
-    <tr onclick="selectEntry(${e.id});switchTab('chain')">
-      <td>${escHtml(e.name)}</td>
-      <td style="color:var(--text3)">${e.hive}</td>
-      <td class="td-val">${escHtml(e.value_data || '')}</td>
-      <td><span class="sev sev-${e.severity}">${e.severity}</span></td>
-      <td style="color:var(--text3)">${(e.first_seen || '').replace('T', ' ').slice(0, 19)}</td>
-    </tr>
-  `).join('');
+        <tr onclick="selectEntry(${e.id});switchTab('tree')">
+          <td>${escHtml(e.name)}</td>
+          <td style="color:var(--text3)">${e.hive}</td>
+          <td class="td-val">${escHtml(e.value_data || '')}</td>
+          <td><span class="sev sev-${e.severity}">${e.severity}</span></td>
+          <td style="color:var(--text3)">${(e.first_seen || '').slice(0, 19).replace('T', ' ')}</td>
+        </tr>
+      `).join('');
       document.getElementById('rawBody').innerHTML = rows;
     }
 
-    // ── TIMELINE ───────────────────────────────────────────────
+    // ── TIMELINE ──
     function renderTimeline() {
       const sorted = [...allEntries].sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
       const dotColor = { critical: 'var(--red)', high: 'var(--amber)', medium: 'var(--blue)', low: 'var(--green)' };
       const html = sorted.map(e => `
-    <div class="tl-item" onclick="selectEntry(${e.id});switchTab('chain')">
-      <div class="tl-dot" style="border-color:${dotColor[e.severity] || 'var(--text3)'}"></div>
-      <div class="tl-time">${(e.last_seen || '').replace('T', ' ').slice(0, 19)}</div>
-      <div class="tl-card">
-        <div class="tl-card-head">
-          <span class="tl-name">${escHtml(e.name)}</span>
-          <span class="sev sev-${e.severity}">${e.severity}</span>
+        <div class="tl-item" onclick="selectEntry(${e.id});switchTab('tree')">
+          <div class="tl-dot" style="border-color:${dotColor[e.severity] || 'var(--text3)'}"></div>
+          <div class="tl-time">${(e.last_seen || '').slice(0, 19).replace('T', ' ')}</div>
+          <div class="tl-card">
+            <div class="tl-card-head">
+              <span class="tl-name">${escHtml(e.name)}</span>
+              <span class="sev sev-${e.severity}">${e.severity}</span>
+            </div>
+            <div class="tl-hive">${e.hive}</div>
+            <div class="tl-val">${escHtml((e.value_data || '').slice(0, 90))}</div>
+          </div>
         </div>
-        <div class="tl-hive">${e.hive}</div>
-        <div class="tl-val">${escHtml((e.value_data || '').slice(0, 90))}</div>
-      </div>
-    </div>
-  `).join('');
+      `).join('');
       document.getElementById('tlItems').innerHTML = html;
     }
 
-    // ── FILTER ─────────────────────────────────────────────────
+    // ── FILTER ──
     function setFilter(btn, val) {
       filter = val;
       document.querySelectorAll('.filt').forEach(b => b.classList.remove('on'));
@@ -1078,24 +1590,24 @@
       renderEntryList();
     }
 
-    // ── TABS ───────────────────────────────────────────────────
+    // ── TABS ──
     function switchTab(name) {
-      ['chain', 'raw', 'timeline'].forEach(t => {
+      ['tree', 'raw', 'timeline'].forEach(t => {
         document.getElementById(`tab-${t}`).classList.toggle('on', t === name);
         document.getElementById(`view-${t}`).classList.toggle('hidden', t !== name);
       });
       activeTab = name;
     }
 
-    // ── SCAN ───────────────────────────────────────────────────
+    // ── SCAN ──
     async function triggerScan() {
       const btn = document.getElementById('scanBtn');
       btn.disabled = true;
       btn.textContent = '⏳ Scanning...';
+      chainCache = {};  // invalidate chain cache
       try {
         await api('/api/scan', 'POST', { extended: false });
         await api('/api/collect-events', 'POST', { hours_back: 24 });
-        // Wait a moment for background tasks to finish
         setTimeout(async () => {
           await loadStats();
           await loadEntries();
@@ -1109,7 +1621,7 @@
       }
     }
 
-    // ── HELPERS ────────────────────────────────────────────────
+    // ── HELPERS ──
     async function api(path, method = 'GET', body = null) {
       const opts = { method, headers: { 'Content-Type': 'application/json' } };
       if (body) opts.body = JSON.stringify(body);
@@ -1122,7 +1634,7 @@
       return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    // ── START ──────────────────────────────────────────────────
+    // ── START ──
     init();
   </script>
 </body>
