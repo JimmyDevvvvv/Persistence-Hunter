@@ -31,6 +31,34 @@ def debug_print(*args, **kwargs):
     if DEBUG:
         print("[DEBUG]", *args, **kwargs)
 
+# ANSI color codes for terminal output
+class Colors:
+    GREY = "\033[90m"
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    MAGENTA = "\033[95m"
+    CYAN = "\033[96m"
+    WHITE = "\033[97m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
+    @classmethod
+    def disable(cls):
+        cls.GREY = cls.RED = cls.GREEN = cls.YELLOW = cls.BLUE = ""
+        cls.MAGENTA = cls.CYAN = cls.WHITE = cls.BOLD = cls.DIM = cls.RESET = ""
+
+# Disable colors on Windows if not running in modern terminal
+if os.name == 'nt' and not os.environ.get('TERM'):
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    except:
+        Colors.disable()
+
 PERSISTENCE_KEYS = [
     {"hive": winreg.HKEY_LOCAL_MACHINE, "hive_name": "HKLM", "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "key_type": "Run"},
     {"hive": winreg.HKEY_CURRENT_USER,  "hive_name": "HKCU", "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "key_type": "Run"},
@@ -39,14 +67,14 @@ PERSISTENCE_KEYS = [
 ]
 
 KNOWN_LEGIT_PATHS = [r"c:\windows\system32", r"c:\windows\syswow64"]
-SUSPICIOUS_PATHS = [r"c:\users\public", r"c:\temp", r"\appdata\roaming", r"\downloads"]
-SUSPICIOUS_NAME_PATTERNS = ["fake", "malware", "backdoor", "payload", "implant", "totally_not"]
+SUSPICIOUS_PATHS = [r"c:\users\public", r"c:\temp", r"\appdata\roaming", r"\downloads", r"c:\malware"]
+SUSPICIOUS_NAME_PATTERNS = ["fake", "malware", "backdoor", "payload", "implant", "totally_not", "ph_"]
 _ROOT_EXE_RE = re.compile(r'^[a-zA-Z]:\\[^\\]+\.exe$', re.IGNORECASE)
-LOLBINS = ["powershell.exe", "cmd.exe", "mshta.exe", "regsvr32.exe", "rundll32.exe", "certutil.exe"]
+LOLBINS = ["powershell.exe", "cmd.exe", "mshta.exe", "regsvr32.exe", "rundll32.exe", "certutil.exe", "wscript.exe", "cscript.exe", "reg.exe"]
 
 MITRE_REG_TECHNIQUES = [(r"currentversion\run", "T1547.001", "Boot/Logon Autostart")]
-MITRE_PROC_TECHNIQUES = [("powershell.exe", "T1059.001", "PowerShell"), ("cmd.exe", "T1059.003", "Command Shell")]
-MITRE_CMD_TECHNIQUES = [("-enc", "T1027", "Obfuscated"), ("http://", "T1105", "Ingress Tool Transfer")]
+MITRE_PROC_TECHNIQUES = [("powershell.exe", "T1059.001", "PowerShell"), ("cmd.exe", "T1059.003", "Command Shell"), ("wscript.exe", "T1059.005", "VBScript"), ("cscript.exe", "T1059.005", "VBScript"), ("mshta.exe", "T1218.005", "Mshta"), ("regsvr32.exe", "T1218.010", "Regsvr32"), ("rundll32.exe", "T1218.011", "Rundll32"), ("certutil.exe", "T1140", "Certutil"), ("reg.exe", "T1112", "Registry Modification")]
+MITRE_CMD_TECHNIQUES = [("-enc", "T1027", "Obfuscated"), ("-encodedcommand", "T1027", "Obfuscated"), ("invoke-expression", "T1059.001", "PowerShell"), ("iex(", "T1059.001", "PowerShell"), ("bypass", "T1562.001", "Bypass"), ("-nop", "T1562.001", "NoProfile"), ("http://", "T1105", "Ingress Tool"), ("https://", "T1105", "Ingress Tool")]
 
 def tag_registry(hive: str, reg_path: str) -> list[dict]:
     combined = (hive + "\\" + reg_path).lower()
@@ -96,6 +124,7 @@ def normalise_reg_path(path: str) -> str:
     if upper.startswith("HKEY_CURRENT_USER\\"):
         return "HKCU\\" + p[18:]
     return p
+
 
 class RegistryCollector:
     DEFAULT_HOURS = 24
@@ -170,16 +199,12 @@ class RegistryCollector:
             CREATE INDEX IF NOT EXISTS idx_proc_time ON process_events(event_time);
             CREATE INDEX IF NOT EXISTS idx_sysmon_reg_key ON sysmon_registry_events(key_path, value_name);
             CREATE INDEX IF NOT EXISTS idx_sysmon_reg_pid ON sysmon_registry_events(pid);
+            CREATE INDEX IF NOT EXISTS idx_sysmon_reg_time ON sysmon_registry_events(event_time);
             CREATE INDEX IF NOT EXISTS idx_sysmon_proc_pid ON sysmon_process_events(pid);
             CREATE INDEX IF NOT EXISTS idx_sysmon_proc_ppid ON sysmon_process_events(parent_pid);
             CREATE INDEX IF NOT EXISTS idx_sysmon_proc_time ON sysmon_process_events(event_time);
         """)
         conn.commit()
-
-        reg_cols = {r[1] for r in conn.execute("PRAGMA table_info(registry_entries)")}
-        if "techniques" not in reg_cols:
-            conn.execute("ALTER TABLE registry_entries ADD COLUMN techniques TEXT DEFAULT '[]'")
-            conn.commit()
         return conn
 
     def collect_registry(self, extended: bool = False) -> list[dict]:
@@ -505,19 +530,19 @@ class RegistryCollector:
             event_dt = datetime.fromisoformat(ts_clean)
             if event_dt < cutoff:
                 return False
-            
+
             fields = {}
             for data in root.findall(".//" + ns + "Data"):
                 name = data.attrib.get("Name", "")
                 if name:
                     fields[name] = (data.text or "").strip()
-            
+
             def _parse_pid(val: str) -> int:
                 try:
                     return int(val, 16) if val.startswith("0x") else int(val)
                 except:
                     return 0
-            
+
             new_pid = _parse_pid(fields.get("NewProcessId", "0"))
             parent_pid = _parse_pid(fields.get("ProcessId", "0"))
             proc_path = fields.get("NewProcessName", "")
@@ -526,7 +551,7 @@ class RegistryCollector:
             domain = fields.get("SubjectDomainName", "")
             user = fields.get("SubjectUserName", "")
             user_name = domain + "\\" + user if user else ""
-            
+
             self.conn.execute("""
                 INSERT OR IGNORE INTO process_events
                     (pid, parent_pid, process_name, process_path, command_line, user_name, event_time, event_id)
@@ -541,54 +566,66 @@ class RegistryCollector:
     def _find_writer(self, entry: dict) -> dict | None:
         reg_path = entry["reg_path"]
         value_name = entry["name"]
-        
+
+        # FIXED: Added time constraint to prevent PID reuse false associations
+        # The process must have started before or at the same time as the registry event
         row = self.conn.execute("""
-            SELECT sre.pid, sre.process_path, sre.process_name, sre.event_time,
-                   spe.parent_pid, spe.command_line, spe.user_name
+            SELECT sre.pid, sre.process_path, sre.process_name as reg_proc_name, sre.event_time as reg_time,
+                   spe.parent_pid, spe.command_line, spe.user_name, spe.process_name as proc_name,
+                   spe.event_time as proc_time
             FROM sysmon_registry_events sre
-            LEFT JOIN sysmon_process_events spe ON sre.pid = spe.pid
+            LEFT JOIN sysmon_process_events spe ON sre.pid = spe.pid 
+                AND spe.event_time <= sre.event_time
             WHERE LOWER(sre.key_path) = LOWER(?) AND LOWER(sre.value_name) = LOWER(?)
-            ORDER BY sre.event_time DESC
+            ORDER BY sre.event_time DESC, spe.event_time DESC
             LIMIT 1
         """, (reg_path, value_name)).fetchone()
-        
+
         if row:
             result = dict(row)
             result["writer_source"] = "sysmon_exact"
+            # Use process name from process events if available, otherwise from registry events
+            if result.get("proc_name"):
+                result["process_name"] = result["proc_name"]
+            else:
+                result["process_name"] = result.get("reg_proc_name", "unknown")
+            # Ensure we have the correct command line
+            if not result.get("command_line"):
+                result["command_line"] = ""
             return result
 
         value_data = entry.get("value_data") or ""
         exe_token = value_data.strip().split()[0] if value_data.strip() else ""
         exe_path = exe_token.strip('"')
         exe_name = os.path.basename(exe_path)
-        
+
         if not exe_name:
             return self._create_unknown_writer(entry)
-            
+
         row = self.conn.execute("""
             SELECT * FROM process_events
             WHERE LOWER(process_name) = LOWER(?)
             ORDER BY event_time DESC
             LIMIT 1
         """, (exe_name,)).fetchone()
-        
+
         if row:
             result = dict(row)
             result["writer_source"] = "4688"
             return result
-            
+
         row = self.conn.execute("""
             SELECT * FROM process_events
             WHERE LOWER(process_name) LIKE ?
             ORDER BY event_time DESC
             LIMIT 1
         """, ("%" + exe_name.lower() + "%",)).fetchone()
-        
+
         if row:
             result = dict(row)
             result["writer_source"] = "4688"
             return result
-            
+
         REGISTRY_WRITERS = ("reg.exe", "powershell.exe", "cmd.exe", "regedit.exe", "regini.exe", 
                            "python.exe", "pwsh.exe", "wscript.exe", "cscript.exe")
         for tool in REGISTRY_WRITERS:
@@ -603,7 +640,7 @@ class RegistryCollector:
                 result = dict(row)
                 result["writer_source"] = "4688-indirect(" + tool + ")"
                 return result
-        
+
         return self._create_unknown_writer(entry)
 
     def _create_unknown_writer(self, entry: dict) -> dict:
@@ -611,7 +648,7 @@ class RegistryCollector:
         exe_token = value.strip().split()[0] if value.strip() else ""
         exe_path = exe_token.strip('"')
         exe_name = os.path.basename(exe_path) if exe_path else "unknown.exe"
-        
+
         return {
             "pid": None,
             "process_name": exe_name,
@@ -621,15 +658,16 @@ class RegistryCollector:
             "event_time": entry.get("last_seen"),
             "parent_pid": None,
             "writer_source": "unknown",
-            "unknown_reason": self._diagnose_unknown(entry)
+            "unknown_reason": self._diagnose_unknown(entry),
+            "first_seen": entry.get("first_seen", "unknown")
         }
 
     def _diagnose_unknown(self, entry: dict) -> str:
         if not PYWIN32_AVAILABLE:
             return "pywin32 not available"
-        
+
         first_seen = entry.get("first_seen")
-        if first_seen:
+        if first_seen and first_seen != "unknown":
             try:
                 fs = datetime.fromisoformat(first_seen)
                 cutoff = datetime.utcnow() - timedelta(hours=self.collection_hours)
@@ -637,115 +675,159 @@ class RegistryCollector:
                     return "Entry created before monitoring window (" + str(self.collection_hours) + "h)"
             except:
                 pass
-        
+
         if entry.get("hive", "").startswith("HKLM"):
             return "System hive entry"
-        
+
         sysmon_count = self.conn.execute("SELECT COUNT(*) FROM sysmon_registry_events").fetchone()[0]
         if sysmon_count == 0:
             return "No Sysmon events in database"
-        
+
         return "No matching event log entry found"
 
+    # FIXED: Removed explorer.exe from SYSTEM_PROCS - it's a user process, not system
     SYSTEM_PROCS = {"system", "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", 
-                    "services.exe", "lsass.exe", "svchost.exe", "explorer.exe"}
+                    "services.exe", "lsass.exe", "svchost.exe", "System"}
     SYSTEM_PIDS = {0, 4}
-    MAX_DEPTH = 10
+    MAX_DEPTH = 15
 
     def _find_parent(self, parent_pid: int, before: str) -> dict | None:
         if not parent_pid or parent_pid == 0:
             return None
-        
+
         best_match = None
         best_time = None
-        
+
         row = self.conn.execute("""
             SELECT pid, parent_pid, process_name, process_path, command_line, user_name, event_time
             FROM sysmon_process_events
             WHERE pid = ? AND event_time <= ?
             ORDER BY event_time DESC LIMIT 1
         """, (parent_pid, before)).fetchone()
-        
+
         if row:
             best_match = dict(row)
             best_match["_source_table"] = "sysmon"
             best_time = row["event_time"]
-        
+
         row = self.conn.execute("""
             SELECT pid, parent_pid, process_name, process_path, command_line, user_name, event_time
             FROM process_events
             WHERE pid = ? AND event_time <= ?
             ORDER BY event_time DESC LIMIT 1
         """, (parent_pid, before)).fetchone()
-        
+
         if row:
             if best_time is None or row["event_time"] > best_time:
                 best_match = dict(row)
                 best_match["_source_table"] = "4688"
-        
+
         return best_match
+
+    def _find_process_by_pid(self, pid: int, before: str) -> dict | None:
+        if not pid or pid == 0:
+            return None
+
+        row = self.conn.execute("""
+            SELECT pid, parent_pid, process_name, process_path, command_line, user_name, event_time
+            FROM sysmon_process_events
+            WHERE pid = ? AND event_time <= ?
+            ORDER BY event_time DESC LIMIT 1
+        """, (pid, before)).fetchone()
+
+        if row:
+            result = dict(row)
+            result["_source_table"] = "sysmon"
+            return result
+
+        row = self.conn.execute("""
+            SELECT pid, parent_pid, process_name, process_path, command_line, user_name, event_time
+            FROM process_events
+            WHERE pid = ? AND event_time <= ?
+            ORDER BY event_time DESC LIMIT 1
+        """, (pid, before)).fetchone()
+
+        if row:
+            result = dict(row)
+            result["_source_table"] = "4688"
+            return result
+
+        return None
 
     def build_attack_chain(self, reg_entry_id: int) -> list[dict]:
         entry = self.conn.execute("SELECT * FROM registry_entries WHERE id = ?", (reg_entry_id,)).fetchone()
         if not entry:
             return []
         entry = dict(entry)
-        
+
         writer = self._find_writer(entry)
-        
+
         if writer.get("writer_source") == "unknown":
             chain = [self._make_node(writer, 0, is_writer=True, entry=entry)]
             self._save_chain(reg_entry_id, chain)
             return chain
-        
+
         chain_nodes = []
         visited_pids = set()
         current = writer
         depth = 0
-        
+
         while current and depth < self.MAX_DEPTH:
             pid = current.get("pid")
             name = (current.get("process_name") or "").lower()
-            
+
             if pid in visited_pids:
                 break
-            
+
             visited_pids.add(pid)
-            is_writer = (depth == 0)
-            
+
             if pid in self.SYSTEM_PIDS or name in self.SYSTEM_PROCS:
-                chain_nodes.append(self._make_node(current, depth, is_writer=is_writer, entry=entry if is_writer else None))
+                chain_nodes.append(self._make_node(current, depth, is_writer=(depth==0), entry=entry if depth==0 else None))
                 break
-            
-            chain_nodes.append(self._make_node(current, depth, is_writer=is_writer, entry=entry if is_writer else None))
-            
+
+            chain_nodes.append(self._make_node(current, depth, is_writer=(depth==0), entry=entry if depth==0 else None))
+
             parent_pid = current.get("parent_pid")
             parent_time = current.get("event_time")
-            
+
             if not parent_pid or not parent_time:
                 break
-            
+
             parent = self._find_parent(parent_pid, parent_time)
             if not parent:
+                parent = self._find_process_by_pid(parent_pid, parent_time)
+
+            if not parent:
                 break
-            
+
             current = parent
             depth += 1
-        
+
         chain_nodes.reverse()
-        
+
         for i, node in enumerate(chain_nodes):
             node["depth"] = i
-        
+
         self._save_chain(reg_entry_id, chain_nodes)
         return chain_nodes
+
+    def _get_color_for_type(self, node_type: str) -> str:
+        colors = {
+            "system": Colors.GREY + Colors.DIM,
+            "normal": Colors.GREEN,
+            "suspicious": Colors.YELLOW,
+            "malicious": Colors.RED + Colors.BOLD,
+            "unknown": Colors.GREY
+        }
+        return colors.get(node_type, Colors.RESET)
 
     def _make_node(self, proc: dict, depth: int, is_writer: bool, entry: dict | None = None) -> dict:
         proc_name = proc.get("process_name") or "unknown"
         cmdline = proc.get("command_line") or ""
         pid = proc.get("pid")
         source = proc.get("writer_source", "sysmon/4688")
-        
+        node_type = "unknown" if source == "unknown" else self._classify_node(proc)
+
         if source == "unknown":
             return {
                 "pid": None,
@@ -758,14 +840,16 @@ class RegistryCollector:
                 "depth": depth,
                 "source": "unknown",
                 "unknown_reason": proc.get("unknown_reason", "No event log data"),
+                # FIXED: Removed misleading first_seen from unknown nodes
+                # or label it as scan time if you want to keep it
                 "techniques": tag_process(proc_name, cmdline),
                 "action": {"type": "reg", "label": "Wrote " + entry['hive'] + " -> " + entry['name']} if entry else None,
             }
-        
+
         node = {
             "pid": pid,
             "name": proc_name,
-            "type": self._classify_node(proc),
+            "type": node_type,
             "user": proc.get("user_name") or "",
             "path": proc.get("process_path") or "",
             "cmdline": cmdline,
@@ -775,13 +859,13 @@ class RegistryCollector:
             "techniques": tag_process(proc_name, cmdline),
             "action": None,
         }
-        
+
         if is_writer and entry:
             node["action"] = {
                 "type": "reg",
                 "label": "Wrote " + entry['hive'] + " -> " + entry['name'] + " = " + entry['value_data'][:60]
             }
-        
+
         return node
 
     def _save_chain(self, reg_entry_id: int, chain: list[dict]):
@@ -794,10 +878,10 @@ class RegistryCollector:
         name = (proc.get("process_name") or "").lower()
         cmd = (proc.get("command_line") or "").lower()
         pid = proc.get("pid")
-        
+
         if pid in (4, 0) or name in ("system", "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe", "lsass.exe"):
             return "system"
-        
+
         sev, _ = self._static_assess(path, cmd)
         if sev == "critical":
             return "malicious"
@@ -855,6 +939,62 @@ class RegistryCollector:
         self.conn.close()
 
 
+def format_chain_node(node: dict, indent: str, show_cmdline: bool = True) -> str:
+    lines = []
+
+    color = Colors.RESET
+    if node.get("type") == "system":
+        color = Colors.GREY + Colors.DIM
+    elif node.get("type") == "malicious":
+        color = Colors.RED + Colors.BOLD
+    elif node.get("type") == "suspicious":
+        color = Colors.YELLOW
+    elif node.get("type") == "normal":
+        color = Colors.GREEN
+    elif node.get("type") == "unknown":
+        color = Colors.GREY
+
+    icons = {"system": "⚙️", "normal": "📦", "suspicious": "⚠️", "malicious": "💀", "unknown": "❓"}
+    icon = icons.get(node.get("type"), "❓")
+
+    if node.get("source") == "unknown":
+        main = indent + icon + " " + node['name'] + " (PID unknown) [unknown]"
+        # FIXED: Removed misleading [First seen] timestamp from unknown nodes
+        # If you want to show it, uncomment below with "Scanned at" label:
+        # if node.get("first_seen") and node.get("first_seen") != "unknown":
+        #     try:
+        #         fs = datetime.fromisoformat(node['first_seen'])
+        #         main += Colors.DIM + " [Scanned at: " + fs.strftime("%Y-%m-%d %H:%M") + "]" + Colors.RESET
+        #     except:
+        #         pass
+        lines.append(color + main + Colors.RESET)
+
+        if node.get("unknown_reason"):
+            lines.append(indent + Colors.YELLOW + "   ⚠️  " + node['unknown_reason'] + Colors.RESET)
+    else:
+        src_badge = "[" + node.get('source', '?') + "]"
+        user_str = node.get('user', '')
+        main = indent + icon + " " + node['name'] + " (PID " + str(node['pid']) + ") " + src_badge
+        if user_str:
+            main += " - " + user_str
+        lines.append(color + main + Colors.RESET)
+
+    if show_cmdline and node.get("cmdline"):
+        cmd = node['cmdline']
+        if len(cmd) > 80:
+            cmd = cmd[:77] + "..."
+        lines.append(indent + Colors.DIM + "   📝 " + cmd + Colors.RESET)
+
+    if node.get("action"):
+        lines.append(indent + Colors.CYAN + "   -> " + node['action']['label'] + Colors.RESET)
+
+    if node.get("techniques"):
+        techs = ", ".join(t['id'] for t in node['techniques'])
+        lines.append(indent + Colors.MAGENTA + "   📌 " + techs + Colors.RESET)
+
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="RegHunt - Registry Persistence Collector")
@@ -864,8 +1004,13 @@ if __name__ == "__main__":
     parser.add_argument("--hours", type=int, default=RegistryCollector.DEFAULT_HOURS, help="Hours back (default: 24)")
     parser.add_argument("--chain", type=int, metavar="ID", help="Build attack chain for entry ID")
     parser.add_argument("--chain-all", action="store_true", help="Build chains for all High/Critical entries")
+    parser.add_argument("--no-color", action="store_true", help="Disable colored output")
+    parser.add_argument("--no-cmdline", action="store_true", help="Hide command lines in chain output")
     parser.add_argument("--db", default="reghunt.db", help="Database path")
     args = parser.parse_args()
+
+    if args.no_color:
+        Colors.disable()
 
     if args.hours > RegistryCollector.MAX_HOURS:
         print("[!] Capping --hours to " + str(RegistryCollector.MAX_HOURS))
@@ -882,7 +1027,8 @@ if __name__ == "__main__":
         print("[+] Found " + str(len(entries)) + " entries")
         for e in entries:
             icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(e["severity"], "⚪")
-            print("  " + icon + " [" + e['severity'].upper() + "] " + e['name'][:40].ljust(40) + " -> " + e['value_data'][:60])
+            sev_color = {"critical": Colors.RED, "high": Colors.YELLOW, "medium": Colors.WHITE, "low": Colors.GREEN}.get(e["severity"], Colors.RESET)
+            print("  " + icon + " " + sev_color + "[" + e['severity'].upper() + "]" + Colors.RESET + " " + e['name'][:40].ljust(40) + " -> " + e['value_data'][:60])
 
     if args.sysmon:
         print("[*] Collecting Sysmon events (last " + str(args.hours) + "h)...")
@@ -899,21 +1045,11 @@ if __name__ == "__main__":
         chain = col.build_attack_chain(args.chain)
         if chain:
             print("[+] Chain depth: " + str(len(chain)) + " nodes")
+            print("")
             for i, node in enumerate(chain):
                 indent = "  " * i
-                type_icon = {"system": "⚙️", "normal": "📦", "suspicious": "⚠️", "malicious": "💀", "unknown": "❓"}.get(node["type"], "❓")
-                if node.get("source") == "unknown":
-                    print(indent + type_icon + " " + node['name'] + " (PID unknown) [unknown]")
-                    if node.get("unknown_reason"):
-                        print(indent + "   ⚠️  " + node['unknown_reason'])
-                else:
-                    src_badge = "[" + node.get('source', '?') + "]"
-                    print(indent + type_icon + " " + node['name'] + " (PID " + str(node['pid']) + ") " + src_badge + " - " + node['user'])
-                if node.get("action"):
-                    print(indent + "   -> " + node['action']['label'])
-                if node.get("techniques"):
-                    techs = ", ".join(t['id'] for t in node['techniques'])
-                    print(indent + "   📌 " + techs)
+                print(format_chain_node(node, indent, show_cmdline=not args.no_cmdline))
+                print("")
         else:
             print("[!] No chain found.")
 
@@ -923,29 +1059,20 @@ if __name__ == "__main__":
         print("[+] Found " + str(len(rows)) + " High/Critical entries")
         for row in rows:
             print("")
-            print("--- Entry " + str(row['id']) + ": " + row['name'] + " [" + row['severity'].upper() + "] ---")
+            sev_color = Colors.RED if row['severity'] == 'critical' else Colors.YELLOW
+            print(Colors.BOLD + "--- Entry " + str(row['id']) + ": " + row['name'] + " [" + sev_color + row['severity'].upper() + Colors.RESET + Colors.BOLD + "] ---" + Colors.RESET)
             chain = col.build_attack_chain(row['id'])
             if chain:
+                print("")
                 for i, node in enumerate(chain):
-                    indent = "    " + "  " * i
-                    type_icon = {"system": "⚙️", "normal": "📦", "suspicious": "⚠️", "malicious": "💀", "unknown": "❓"}.get(node["type"], "❓")
-                    if node.get("source") == "unknown":
-                        print(indent + type_icon + " " + node['name'] + " (PID unknown) [unknown]")
-                        if node.get("unknown_reason"):
-                            print(indent + "   ⚠️  " + node['unknown_reason'])
-                    else:
-                        src_badge = "[" + node.get('source', '?') + "]"
-                        print(indent + type_icon + " " + node['name'] + " (PID " + str(node['pid']) + ") " + src_badge + " - " + node['user'])
-                    if node.get("action"):
-                        print(indent + "   -> " + node['action']['label'])
-                    if node.get("techniques"):
-                        techs = ", ".join(t['id'] for t in node['techniques'])
-                        print(indent + "   📌 " + techs)
+                    indent = "  " * i
+                    print(format_chain_node(node, indent, show_cmdline=not args.no_cmdline))
+                    print("")
             else:
                 print("    [!] No chain")
 
     stats = col.get_stats()
     print("")
-    print("[*] DB Stats: " + str(stats['total']) + " entries | 4688: " + str(stats['process_events']) + " | Sysmon: " + str(stats['sysmon_events']))
-    print("    Critical: " + str(stats['critical']) + " | High: " + str(stats['high']) + " | Medium: " + str(stats['medium']) + " | Low: " + str(stats['low']))
+    print(Colors.BOLD + "[*] DB Stats: " + str(stats['total']) + " entries | 4688: " + str(stats['process_events']) + " | Sysmon: " + str(stats['sysmon_events']) + Colors.RESET)
+    print("    Critical: " + Colors.RED + str(stats['critical']) + Colors.RESET + " | High: " + Colors.YELLOW + str(stats['high']) + Colors.RESET + " | Medium: " + str(stats['medium']) + " | Low: " + Colors.GREEN + str(stats['low']) + Colors.RESET)
     col.close()
