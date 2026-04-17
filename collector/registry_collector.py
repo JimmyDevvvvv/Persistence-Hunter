@@ -602,12 +602,16 @@ class RegistryCollector:
         if not exe_name:
             return self._create_unknown_writer(entry)
 
+        # Use last_seen as the upper bound — the process must have started before the entry was last seen
+        last_seen = entry.get("last_seen") or datetime.now().isoformat()
+
         row = self.conn.execute("""
             SELECT * FROM process_events
             WHERE LOWER(process_name) = LOWER(?)
+              AND event_time <= ?
             ORDER BY event_time DESC
             LIMIT 1
-        """, (exe_name,)).fetchone()
+        """, (exe_name, last_seen)).fetchone()
 
         if row:
             result = dict(row)
@@ -617,9 +621,10 @@ class RegistryCollector:
         row = self.conn.execute("""
             SELECT * FROM process_events
             WHERE LOWER(process_name) LIKE ?
+              AND event_time <= ?
             ORDER BY event_time DESC
             LIMIT 1
-        """, ("%" + exe_name.lower() + "%",)).fetchone()
+        """, ("%" + exe_name.lower() + "%", last_seen)).fetchone()
 
         if row:
             result = dict(row)
@@ -632,10 +637,11 @@ class RegistryCollector:
             row = self.conn.execute("""
                 SELECT * FROM process_events
                 WHERE LOWER(process_name) = ?
+                  AND event_time <= ?
                   AND (LOWER(command_line) LIKE ? OR LOWER(command_line) LIKE ?)
                 ORDER BY event_time DESC
                 LIMIT 1
-            """, (tool, "%" + value_name.lower() + "%", "%" + exe_path.lower() + "%")).fetchone()
+            """, (tool, last_seen, "%" + value_name.lower() + "%", "%" + exe_path.lower() + "%")).fetchone()
             if row:
                 result = dict(row)
                 result["writer_source"] = "4688-indirect(" + tool + ")"

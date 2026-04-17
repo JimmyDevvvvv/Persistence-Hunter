@@ -3,1639 +3,552 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RegHunt — Registry Persistence Hunter</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link
-    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap"
-    rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>RegHunt EDR - Horizontal Attack Chain Viewer</title>
   <style>
-    *,
-    *::before,
-    *::after {
+    * {
       box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    :root {
-      --bg: #0d0f14;
-      --surface: #141720;
-      --surface2: #1c2030;
-      --surface3: #242840;
-      --border: rgba(255, 255, 255, 0.06);
-      --border2: rgba(255, 255, 255, 0.11);
-      --text: #e2e4f0;
-      --text2: #8891b0;
-      --text3: #4a5270;
-      --red: #ff4757;
-      --red-dim: rgba(255, 71, 87, 0.13);
-      --amber: #ffaa00;
-      --amber-dim: rgba(255, 170, 0, 0.11);
-      --green: #00d4a0;
-      --green-dim: rgba(0, 212, 160, 0.09);
-      --blue: #4d9eff;
-      --blue-dim: rgba(77, 158, 255, 0.09);
-      --purple: #a78bfa;
-      --purple-dim: rgba(167, 139, 250, 0.10);
-      --gray-dim: rgba(255, 255, 255, 0.05);
-      --mono: 'JetBrains Mono', monospace;
-      --display: 'Syne', sans-serif;
     }
 
     body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--mono);
-      font-size: 13px;
-      height: 100vh;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
+      background: #0a0e1a;
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, monospace;
+      margin: 0;
+      padding: 20px;
+      color: #eef2ff;
     }
 
-    /* ── HEADER ── */
+    .app-container {
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    /* Header & stats */
     .header {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      padding: 0 20px;
-      height: 52px;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 600;
+      margin: 0;
+      background: linear-gradient(135deg, #c084fc, #60a5fa);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .stats-badge {
+      background: #111827;
+      padding: 6px 12px;
+      border-radius: 40px;
+      font-size: 0.8rem;
+      font-family: monospace;
+      border: 1px solid #2d3a5e;
+    }
+
+    /* entry selector */
+    .selector-panel {
+      background: #0f172a;
+      border-radius: 20px;
+      padding: 16px 20px;
+      margin-bottom: 28px;
+      border: 1px solid #1e2a44;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .selector-label {
+      font-weight: 500;
+      font-size: 0.9rem;
+      color: #94a3b8;
+    }
+
+    select {
+      background: #020617;
+      border: 1px solid #334155;
+      padding: 10px 24px 10px 14px;
+      border-radius: 40px;
+      color: #f1f5f9;
+      font-family: monospace;
+      font-size: 0.85rem;
+      cursor: pointer;
+      outline: none;
+      min-width: 320px;
+    }
+
+    .badge-critical {
+      background: #7f1a1a;
+      color: #fecaca;
+      padding: 2px 10px;
+      border-radius: 30px;
+      font-size: 0.7rem;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+
+    .badge-high {
+      background: #b45309;
+      color: #ffedd5;
+    }
+
+    .refresh-btn {
+      background: #1e293b;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 40px;
+      color: white;
+      font-weight: 500;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .refresh-btn:hover {
+      background: #2d3a5e;
+    }
+
+    /* Horizontal chain container */
+    .chain-container {
+      background: #0b1120;
+      border-radius: 28px;
+      border: 1px solid #1f2a44;
+      padding: 24px 16px;
+      overflow-x: auto;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .chain-track {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      min-width: max-content;
+      padding: 12px 8px;
+    }
+
+    /* process card */
+    .proc-card {
+      background: #111827;
+      border-radius: 20px;
+      width: 260px;
       flex-shrink: 0;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
+      border-left: 4px solid;
+      transition: all 0.2s;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
     }
 
-    .logo {
+    .proc-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 14px 26px rgba(0, 0, 0, 0.4);
+      background: #1a2332;
+    }
+
+    .card-header {
+      padding: 12px 14px 8px 14px;
+      border-bottom: 1px solid #1f2a44;
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 10px;
+      flex-wrap: wrap;
+      gap: 6px;
     }
 
-    .logo-mark {
-      width: 28px;
-      height: 28px;
-      border-radius: 7px;
-      background: var(--red-dim);
-      border: 1px solid rgba(255, 71, 87, 0.25);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
+    .proc-name {
+      font-weight: 700;
+      font-size: 1.05rem;
+      font-family: 'JetBrains Mono', monospace;
+      word-break: break-word;
     }
 
-    .logo-text {
-      font-family: var(--display);
-      font-weight: 800;
-      font-size: 14px;
-      letter-spacing: 0.06em;
+    .pid {
+      font-size: 0.7rem;
+      background: #0f172a;
+      padding: 2px 8px;
+      border-radius: 30px;
+      font-family: monospace;
+      color: #94a3b8;
     }
 
-    .logo-sep {
-      color: var(--text3);
-      margin: 0 6px;
+    .source-badge {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: #1e293b;
+      color: #b9c7db;
     }
 
-    .logo-sub {
-      font-size: 11px;
-      color: var(--text3);
-      font-family: var(--display);
+    .source-sysmon {
+      background: #0f3b2c;
+      color: #86efac;
     }
 
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    .source-4688 {
+      background: #2c2a4a;
+      color: #c7d2fe;
     }
 
-    .hdr-stat {
+    .source-inferred {
+      background: #3b2e1e;
+      color: #fde047;
+    }
+
+    .card-body {
+      padding: 10px 14px 14px 14px;
+    }
+
+    .user-info {
+      font-size: 0.7rem;
+      color: #9ca3af;
+      margin-bottom: 10px;
+      font-family: monospace;
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 5px 10px;
-      border-radius: 5px;
-      font-size: 11px;
-      font-weight: 500;
-      border: 1px solid;
     }
 
-    .hdr-stat-dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: currentColor;
-    }
-
-    .hdr-stat.red {
-      color: var(--red);
-      border-color: rgba(255, 71, 87, 0.2);
-      background: var(--red-dim);
-    }
-
-    .hdr-stat.amber {
-      color: var(--amber);
-      border-color: rgba(255, 170, 0, 0.2);
-      background: var(--amber-dim);
-    }
-
-    .hdr-stat.green {
-      color: var(--green);
-      border-color: rgba(0, 212, 160, 0.2);
-      background: var(--green-dim);
-    }
-
-    .pulse {
-      animation: pulse 2.5s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-
-      0%,
-      100% {
-        opacity: 1
-      }
-
-      50% {
-        opacity: 0.35
-      }
-    }
-
-    .scan-btn {
-      padding: 6px 14px;
-      border-radius: 5px;
-      font-size: 11px;
-      font-weight: 600;
-      background: var(--red-dim);
-      color: var(--red);
-      border: 1px solid rgba(255, 71, 87, 0.3);
-      cursor: pointer;
-      font-family: var(--mono);
-      transition: all 0.15s;
-      letter-spacing: 0.04em;
-    }
-
-    .scan-btn:hover {
-      background: rgba(255, 71, 87, 0.22);
-    }
-
-    .scan-btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    /* ── LAYOUT ── */
-    .layout {
-      display: grid;
-      grid-template-columns: 290px 1fr;
-      flex: 1;
-      overflow: hidden;
-    }
-
-    /* ── LEFT PANEL ── */
-    .left {
-      border-right: 1px solid var(--border);
-      overflow-y: auto;
-      background: var(--surface);
-      display: flex;
-      flex-direction: column;
-    }
-
-    .filter-bar {
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      gap: 5px;
-      flex-wrap: wrap;
-    }
-
-    .filt {
+    .mitre-badge {
+      display: inline-block;
+      background: #1e2a3a;
       padding: 3px 8px;
-      border-radius: 4px;
-      font-size: 10px;
-      cursor: pointer;
-      border: 1px solid var(--border2);
-      color: var(--text3);
-      background: transparent;
-      font-family: var(--mono);
-      transition: all 0.12s;
-    }
-
-    .filt:hover {
-      color: var(--text2);
-      border-color: var(--text3);
-    }
-
-    .filt.on {
-      background: var(--red-dim);
-      border-color: rgba(255, 71, 87, 0.3);
-      color: var(--red);
-    }
-
-    .entry-list {
-      flex: 1;
-      overflow-y: auto;
-    }
-
-    .entry {
-      padding: 9px 14px;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      transition: background 0.12s;
-      position: relative;
-    }
-
-    .entry:hover {
-      background: var(--surface2);
-    }
-
-    .entry.active {
-      background: var(--surface2);
-      border-left: 2px solid var(--red);
-      padding-left: 12px;
-    }
-
-    .entry-name {
+      border-radius: 30px;
+      font-size: 0.65rem;
+      font-family: monospace;
       font-weight: 500;
-      font-size: 12px;
-      color: var(--text);
-      margin-bottom: 2px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .entry-hive {
-      font-size: 10px;
-      color: var(--text3);
-      margin-bottom: 5px;
-    }
-
-    .entry-footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .sev {
-      font-size: 9px;
-      font-weight: 700;
-      padding: 2px 6px;
-      border-radius: 3px;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-    }
-
-    .sev-critical {
-      background: rgba(255, 71, 87, 0.18);
-      color: var(--red);
-    }
-
-    .sev-high {
-      background: rgba(255, 170, 0, 0.14);
-      color: var(--amber);
-    }
-
-    .sev-medium {
-      background: rgba(77, 158, 255, 0.12);
-      color: var(--blue);
-    }
-
-    .sev-low {
-      background: var(--green-dim);
-      color: var(--green);
-    }
-
-    .sev-unknown {
-      background: var(--gray-dim);
-      color: var(--text3);
-    }
-
-    .entry-time {
-      font-size: 10px;
-      color: var(--text3);
-    }
-
-    /* ── MAIN ── */
-    .main {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    .tabs {
-      display: flex;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-      flex-shrink: 0;
-    }
-
-    .tab {
-      padding: 10px 18px;
-      font-size: 11px;
-      color: var(--text3);
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      transition: all 0.12s;
-      letter-spacing: 0.04em;
-      font-weight: 500;
-    }
-
-    .tab:hover {
-      color: var(--text2);
-    }
-
-    .tab.on {
-      color: var(--text);
-      border-bottom-color: var(--red);
-    }
-
-    /* ── TREE VIEW ── */
-    .tree-view {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-    }
-
-    .tv-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 20px;
-      padding-bottom: 14px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-
-    .tv-icon {
-      font-size: 18px;
-    }
-
-    .tv-title {
-      font-family: var(--display);
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-    }
-
-    .tv-sub {
-      font-size: 10px;
-      color: var(--text3);
-      margin-top: 2px;
-    }
-
-    .tv-hint {
-      font-size: 10px;
-      color: var(--text3);
-      margin-left: auto;
-    }
-
-    /* ── PROCESS FOREST ── */
-    .forest {
-      flex: 1;
-    }
-
-    .forest-root-group {
-      margin-bottom: 8px;
-    }
-
-    /* tree row: indent guide + node card */
-    .tree-row {
-      display: flex;
-      align-items: stretch;
-    }
-
-    /* Vertical/horizontal connector guides */
-    .tree-guides {
-      display: flex;
-      flex-shrink: 0;
-    }
-
-    .guide-segment {
-      width: 22px;
-      flex-shrink: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    .guide-v {
-      width: 1px;
-      background: var(--border2);
-      flex: 1;
-      min-height: 100%;
-    }
-
-    .guide-vt {
-      width: 1px;
-      background: var(--border2);
-      height: 50%;
-    }
-
-    /* top half only */
-    .guide-vb {
-      width: 1px;
-      background: var(--border2);
-      flex: 1;
-    }
-
-    /* bottom half only */
-    .guide-h {
-      height: 1px;
-      background: var(--border2);
-      width: 50%;
-      align-self: center;
-      margin-top: 0;
-    }
-
-    .guide-space {
-      width: 22px;
-      flex-shrink: 0;
-    }
-
-    /* Node card */
-    .tree-node {
-      flex: 1;
-      border: 1px solid var(--border2);
-      border-radius: 7px;
-      padding: 9px 12px;
-      margin: 2px 0 2px 0;
-      background: var(--surface2);
-      cursor: pointer;
-      transition: background 0.12s;
-      position: relative;
-      overflow: hidden;
-      min-width: 0;
-    }
-
-    .tree-node::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 3px;
-    }
-
-    .tree-node.t-system ::before,
-    .tree-node.t-system::before {
-      background: var(--text3);
-    }
-
-    .tree-node.t-normal ::before,
-    .tree-node.t-normal::before {
-      background: var(--blue);
-    }
-
-    .tree-node.t-suspicious::before {
-      background: var(--amber);
-    }
-
-    .tree-node.t-malicious ::before {
-      background: var(--red);
-    }
-
-    .tree-node.t-unknown ::before {
-      background: var(--purple);
-    }
-
-    .tree-node:hover {
-      background: var(--surface3);
-    }
-
-    .tree-node.selected {
-      outline: 1px solid rgba(77, 158, 255, 0.35);
-      background: var(--surface3);
-    }
-
-    .tree-node.has-critical {
-      border-color: rgba(255, 71, 87, 0.3);
-    }
-
-    .tree-node.has-high {
-      border-color: rgba(255, 170, 0, 0.25);
-    }
-
-    /* Node header */
-    .tn-head {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-bottom: 4px;
-    }
-
-    .tn-icon {
-      font-size: 12px;
-      flex-shrink: 0;
-    }
-
-    .tn-name {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text);
-      flex: 1;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .tn-pid {
-      font-size: 10px;
-      color: var(--text3);
-      flex-shrink: 0;
-    }
-
-    .tn-src {
-      font-size: 9px;
-      padding: 1px 5px;
-      border-radius: 3px;
-      flex-shrink: 0;
-      font-weight: 500;
-      letter-spacing: 0.04em;
-    }
-
-    .tn-src.s-4688 {
-      background: var(--blue-dim);
-      color: var(--blue);
-      border: 1px solid rgba(77, 158, 255, 0.2);
-    }
-
-    .tn-src.s-inferred {
-      background: var(--purple-dim);
-      color: var(--purple);
-      border: 1px solid rgba(167, 139, 250, 0.2);
-    }
-
-    /* Node meta */
-    .tn-meta {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .tn-meta-item {
-      font-size: 10px;
-      color: var(--text2);
-    }
-
-    .tn-meta-lbl {
-      color: var(--text3);
-    }
-
-    /* Registry leaf */
-    .reg-leaf {
-      margin: 2px 0 2px 0;
-      flex: 1;
-      border: 1px solid rgba(255, 71, 87, 0.2);
-      border-radius: 7px;
-      padding: 9px 12px;
-      background: rgba(255, 71, 87, 0.05);
-      cursor: pointer;
-      transition: background 0.12s;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .reg-leaf::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 3px;
-      background: var(--red);
-    }
-
-    .reg-leaf.sev-high::before {
-      background: var(--amber);
-    }
-
-    .reg-leaf.sev-medium::before {
-      background: var(--blue);
-    }
-
-    .reg-leaf.sev-low::before {
-      background: var(--green);
-    }
-
-    .reg-leaf:hover {
-      background: rgba(255, 71, 87, 0.09);
-    }
-
-    .reg-leaf.selected {
-      outline: 1px solid rgba(77, 158, 255, 0.35);
-    }
-
-    .rl-head {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-bottom: 4px;
-    }
-
-    .rl-icon {
-      font-size: 12px;
-      flex-shrink: 0;
-    }
-
-    .rl-name {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text);
-      flex: 1;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .rl-hive {
-      font-size: 10px;
-      color: var(--text3);
-      margin-bottom: 4px;
-    }
-
-    .rl-val {
-      font-size: 10px;
-      color: var(--text2);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .rl-foot {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-top: 6px;
-      flex-wrap: wrap;
-    }
-
-    /* MITRE technique tags */
-    .mitre-tag {
-      font-size: 9px;
-      font-weight: 600;
-      padding: 1px 6px;
-      border-radius: 3px;
-      background: var(--purple-dim);
-      color: var(--purple);
-      border: 1px solid rgba(167, 139, 250, 0.2);
-      letter-spacing: 0.04em;
-      text-decoration: none;
-      cursor: pointer;
-    }
-
-    .mitre-tag:hover {
-      background: rgba(167, 139, 250, 0.2);
-    }
-
-    /* ── DETAIL STRIP ── */
-    .detail-strip {
-      border-top: 1px solid var(--border);
-      background: var(--surface);
-      padding: 0;
-      flex-shrink: 0;
-      transition: max-height 0.2s ease;
-    }
-
-    .detail-strip-inner {
-      padding: 12px 20px;
-    }
-
-    .detail-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 10px;
-    }
-
-    .detail-label {
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      color: var(--text3);
-      text-transform: uppercase;
-    }
-
-    .detail-close {
-      font-size: 14px;
-      color: var(--text3);
-      cursor: pointer;
-      line-height: 1;
-      padding: 2px 4px;
-      border-radius: 3px;
-    }
-
-    .detail-close:hover {
-      color: var(--text2);
-      background: var(--surface2);
-    }
-
-    .detail-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-
-    .di-label {
-      font-size: 10px;
-      color: var(--text3);
-      margin-bottom: 3px;
-    }
-
-    .di-val {
-      font-size: 11px;
-      color: var(--text);
+      margin-right: 6px;
+      margin-bottom: 6px;
+      color: #a5f3fc;
+    }
+
+    .cmdline {
+      font-size: 0.7rem;
+      font-family: monospace;
+      background: #010409;
+      padding: 8px;
+      border-radius: 12px;
+      margin-top: 8px;
+      color: #cbd5e6;
+      overflow-x: auto;
+      white-space: pre-wrap;
       word-break: break-all;
+      border: 1px solid #1e2a44;
     }
 
-    .di-val.red {
-      color: var(--red);
+    .arrow-symbol {
+      font-size: 28px;
+      color: #4b556b;
+      margin: 0 2px;
+      flex-shrink: 0;
     }
 
-    .di-val.amber {
-      color: var(--amber);
+    .loading {
+      text-align: center;
+      padding: 48px;
+      color: #6c86a3;
     }
 
-    .di-val.green {
-      color: var(--green);
+    .error {
+      background: #3b0f0f;
+      border-left: 6px solid #ef4444;
+      padding: 14px;
+      border-radius: 16px;
+      margin: 20px 0;
     }
 
-    .di-val.purple {
-      color: var(--purple);
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+      font-size: 0.7rem;
+      color: #475569;
     }
 
-    /* MITRE section in detail strip */
-    .detail-mitre {
-      border-top: 1px solid var(--border);
-      padding-top: 10px;
-      margin-top: 2px;
+    /* type colors */
+    .type-malicious {
+      border-left-color: #ef4444;
     }
 
-    .detail-mitre-label {
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      color: var(--text3);
-      text-transform: uppercase;
-      margin-bottom: 8px;
+    .type-suspicious {
+      border-left-color: #f97316;
     }
 
-    .detail-mitre-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
+    .type-normal {
+      border-left-color: #22c55e;
     }
 
-    .mitre-detail-tag {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px 4px 6px;
-      border-radius: 4px;
-      background: var(--purple-dim);
-      border: 1px solid rgba(167, 139, 250, 0.2);
-      text-decoration: none;
+    .type-system {
+      border-left-color: #6b7280;
     }
 
-    .mitre-detail-tag:hover {
-      background: rgba(167, 139, 250, 0.2);
-    }
-
-    .mitre-detail-id {
-      font-size: 10px;
-      font-weight: 700;
-      color: var(--purple);
-      font-family: var(--mono);
-    }
-
-    .mitre-detail-name {
-      font-size: 10px;
-      color: var(--text2);
-    }
-
-    /* ── RAW TABLE ── */
-    .raw-view {
-      flex: 1;
-      overflow: auto;
-      padding: 20px;
-    }
-
-    .raw-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    .raw-table th {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      color: var(--text3);
-      text-transform: uppercase;
-      padding: 8px 12px;
-      text-align: left;
-      border-bottom: 1px solid var(--border2);
-    }
-
-    .raw-table td {
-      padding: 8px 12px;
-      border-bottom: 1px solid var(--border);
-      font-size: 11px;
-      vertical-align: top;
-    }
-
-    .raw-table tr:hover td {
-      background: var(--surface2);
-      cursor: pointer;
-    }
-
-    .raw-table .td-val {
-      max-width: 340px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: var(--text2);
-    }
-
-    /* ── TIMELINE ── */
-    .tl-view {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px 24px;
-    }
-
-    .tl-track {
-      position: relative;
-      padding-left: 24px;
-    }
-
-    .tl-line {
-      position: absolute;
-      left: 8px;
-      top: 0;
-      bottom: 0;
-      width: 1px;
-      background: var(--border2);
-    }
-
-    .tl-item {
-      position: relative;
-      margin-bottom: 14px;
-      cursor: pointer;
-    }
-
-    .tl-dot {
-      position: absolute;
-      left: -20px;
-      top: 5px;
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      border: 1.5px solid;
-      background: var(--bg);
-    }
-
-    .tl-time {
-      font-size: 10px;
-      color: var(--text3);
-      margin-bottom: 3px;
-    }
-
-    .tl-card {
-      background: var(--surface2);
-      border: 1px solid var(--border2);
-      border-radius: 6px;
-      padding: 10px 12px;
-      transition: background 0.12s;
-    }
-
-    .tl-item:hover .tl-card {
-      background: var(--surface3);
-    }
-
-    .tl-card-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 4px;
-    }
-
-    .tl-name {
-      font-weight: 600;
-      font-size: 12px;
-    }
-
-    .tl-hive {
-      font-size: 10px;
-      color: var(--text3);
-      margin-bottom: 3px;
-    }
-
-    .tl-val {
-      font-size: 11px;
-      color: var(--text2);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    /* ── EMPTY / LOADING ── */
-    .placeholder {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      gap: 10px;
-      color: var(--text3);
-    }
-
-    .placeholder-icon {
-      font-size: 36px;
-      opacity: 0.25;
-    }
-
-    .placeholder-text {
-      font-size: 12px;
-    }
-
-    /* ── SCROLLBARS ── */
-    ::-webkit-scrollbar {
-      width: 3px;
-      height: 3px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: var(--border2);
-      border-radius: 2px;
-    }
-
-    .hidden {
-      display: none !important;
+    .type-unknown {
+      border-left-color: #6b7280;
     }
   </style>
 </head>
 
 <body>
-
-  <!-- HEADER -->
-  <div class="header">
-    <div class="logo">
-      <div class="logo-mark">🔍</div>
-      <span class="logo-text">REGHUNT</span>
-      <span class="logo-sep">·</span>
-      <span class="logo-sub">Registry Persistence Hunter</span>
-    </div>
-    <div class="header-right">
-      <div class="hdr-stat red">
-        <div class="hdr-stat-dot pulse"></div> <span id="cnt-critical">–</span> Critical
-      </div>
-      <div class="hdr-stat amber">
-        <div class="hdr-stat-dot"></div> <span id="cnt-high">–</span> High
-      </div>
-      <div class="hdr-stat green">
-        <div class="hdr-stat-dot pulse"></div> Live
-      </div>
-      <button class="scan-btn" id="scanBtn" onclick="triggerScan()">↺ Re-Scan</button>
-    </div>
-  </div>
-
-  <!-- LAYOUT -->
-  <div class="layout">
-
-    <!-- LEFT: entry list -->
-    <div class="left">
-      <div class="filter-bar">
-        <button class="filt on" onclick="setFilter(this,'ALL')">ALL</button>
-        <button class="filt" onclick="setFilter(this,'critical')">Critical</button>
-        <button class="filt" onclick="setFilter(this,'high')">High</button>
-        <button class="filt" onclick="setFilter(this,'HKLM')">HKLM</button>
-        <button class="filt" onclick="setFilter(this,'HKCU')">HKCU</button>
-        <button class="filt" onclick="setFilter(this,'RunOnce')">RunOnce</button>
-      </div>
-      <div class="entry-list" id="entryList">
-        <div class="placeholder">
-          <div class="placeholder-icon">⏳</div>
-          <div class="placeholder-text">Loading entries...</div>
-        </div>
-      </div>
+  <div class="app-container">
+    <div class="header">
+      <h1>🔍 RegHunt · EDR Attack Chain</h1>
+      <div class="stats-badge" id="statsInfo">⏳ Loading stats...</div>
     </div>
 
-    <!-- MAIN -->
-    <div class="main">
-      <div class="tabs">
-        <div class="tab on" id="tab-tree" onclick="switchTab('tree')">Process Tree</div>
-        <div class="tab" id="tab-raw" onclick="switchTab('raw')">Raw Entries</div>
-        <div class="tab" id="tab-timeline" onclick="switchTab('timeline')">Timeline</div>
-      </div>
+    <div class="selector-panel">
+      <span class="selector-label">🎯 PERSISTENCE ENTRY (CRITICAL / HIGH)</span>
+      <select id="entrySelect" style="flex:1; max-width: 500px;">
+        <option value="">— Select a registry entry to visualize chain —</option>
+      </select>
+      <button class="refresh-btn" id="refreshBtn">⟳ Refresh list & chains</button>
+    </div>
 
-      <!-- TREE VIEW -->
-      <div id="view-tree" class="tree-view">
-        <div class="placeholder" id="tree-placeholder">
-          <div class="placeholder-icon">🌲</div>
-          <div class="placeholder-text">Select a registry entry to trace its process tree</div>
-        </div>
-        <div id="tree-content" class="hidden" style="display:flex;flex-direction:column;height:100%">
-          <div class="tv-header">
-            <div class="tv-icon" id="tv-icon">💀</div>
-            <div>
-              <div class="tv-title" id="tv-title">–</div>
-              <div class="tv-sub" id="tv-sub">–</div>
-            </div>
-            <div class="tv-hint" id="tv-hint"></div>
-          </div>
-          <div class="forest" id="forestContainer"></div>
-        </div>
-      </div>
-
-      <!-- RAW TABLE -->
-      <div id="view-raw" class="raw-view hidden">
-        <table class="raw-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Hive</th>
-              <th>Value</th>
-              <th>Severity</th>
-              <th>First Seen</th>
-            </tr>
-          </thead>
-          <tbody id="rawBody"></tbody>
-        </table>
-      </div>
-
-      <!-- TIMELINE -->
-      <div id="view-timeline" class="tl-view hidden">
-        <div class="tl-track">
-          <div class="tl-line"></div>
-          <div id="tlItems"></div>
-        </div>
-      </div>
-
-      <!-- DETAIL STRIP -->
-      <div class="detail-strip hidden" id="detailStrip">
-        <div class="detail-strip-inner">
-          <div class="detail-top">
-            <div class="detail-label" id="detail-kind">Selected Node</div>
-            <span class="detail-close" onclick="closeDetail()">✕</span>
-          </div>
-          <div class="detail-grid" id="detailGrid"></div>
-          <div class="detail-mitre hidden" id="detailMitre">
-            <div class="detail-mitre-label">MITRE ATT&amp;CK Techniques</div>
-            <div class="detail-mitre-list" id="detailMitreList"></div>
-          </div>
-        </div>
-      </div>
+    <div class="chain-container" id="chainContainer">
+      <div class="loading" id="loadingMsg">✨ Select an entry to render EDR-style horizontal chain</div>
+    </div>
+    <div class="footer">
+      🧬 Process ancestry: left (oldest) → right (writer). SYSMON exact = green badge, inferred = yellow.
+      MITRE TTPs shown per node.
     </div>
   </div>
 
   <script>
-    const API = 'http://localhost:8000';
+    const API_BASE = 'http://localhost:8000';  // FastAPI default
+    let currentEntries = [];
 
-    // ── STATE ──
-    let allEntries = [];
-    let chainCache = {};   // entry_id → chain array
-    let activeId = null;
-    let activeTab = 'tree';
-    let filter = 'ALL';
-    let selectedNodeEl = null;
-
-    // ── BOOT ──
-    async function init() {
-      await loadStats();
-      await loadEntries();
-    }
-
-    // ── STATS ──
-    async function loadStats() {
+    async function fetchStats() {
       try {
-        const s = await api('/api/stats');
-        document.getElementById('cnt-critical').textContent = s.critical;
-        document.getElementById('cnt-high').textContent = s.high;
-      } catch (e) { console.warn('stats error', e); }
-    }
-
-    // ── ENTRIES ──
-    async function loadEntries() {
-      try {
-        const data = await api('/api/entries?limit=200');
-        allEntries = data.entries || [];
-        renderEntryList();
-        renderRawTable();
-        renderTimeline();
-        const first = allEntries.find(e => e.severity === 'critical' || e.severity === 'high') || allEntries[0];
-        if (first) selectEntry(first.id);
+        const resp = await fetch(`${API_BASE}/api/stats`);
+        if (!resp.ok) throw new Error('Stats failed');
+        const stats = await resp.json();
+        document.getElementById('statsInfo').innerHTML = `📊 ${stats.total} entries | 🔴 ${stats.critical} critical | 🟠 ${stats.high} high | 🧬 Sysmon: ${stats.sysmon_events}`;
       } catch (e) {
-        document.getElementById('entryList').innerHTML =
-          `<div class="placeholder"><div class="placeholder-icon">⚠️</div><div class="placeholder-text">Cannot reach API at ${API}</div></div>`;
+        document.getElementById('statsInfo').innerHTML = '⚠️ Cannot connect to API. Is backend running?';
+        console.error(e);
       }
     }
 
-    // ── RENDER ENTRY LIST ──
-    function renderEntryList() {
-      const visible = filteredEntries();
-      const html = visible.map(e => `
-        <div class="entry ${activeId === e.id ? 'active' : ''}" onclick="selectEntry(${e.id})">
-          <div class="entry-name">${escHtml(e.name)}</div>
-          <div class="entry-hive">${e.hive}</div>
-          <div class="entry-footer">
-            <span class="sev sev-${e.severity}">${e.severity}</span>
-            <span class="entry-time">${(e.last_seen || '').slice(11, 19)}</span>
-          </div>
-        </div>
-      `).join('');
-      document.getElementById('entryList').innerHTML = html ||
-        `<div class="placeholder" style="padding:24px"><div class="placeholder-text">No entries match this filter</div></div>`;
-    }
-
-    function filteredEntries() {
-      if (filter === 'ALL') return allEntries;
-      if (['critical', 'high', 'medium', 'low'].includes(filter))
-        return allEntries.filter(e => e.severity === filter);
-      return allEntries.filter(e => e.hive.toUpperCase().includes(filter.toUpperCase()));
-    }
-
-    // ── SELECT ENTRY ──
-    async function selectEntry(id) {
-      activeId = id;
-      renderEntryList();
-      const entry = allEntries.find(e => e.id === id);
-      if (!entry) return;
-
-      const icon = { critical: '💀', high: '⚠️', medium: '🔵', low: '✅' }[entry.severity] || '🔍';
-      document.getElementById('tv-icon').textContent = icon;
-      document.getElementById('tv-title').textContent = entry.name;
-      document.getElementById('tv-sub').textContent =
-        `${entry.hive}  ·  ${(entry.value_data || '').slice(0, 80)}${(entry.value_data || '').length > 80 ? '…' : ''}`;
-
-      document.getElementById('tree-placeholder').classList.add('hidden');
-      const tc = document.getElementById('tree-content');
-      tc.classList.remove('hidden');
-      tc.style.display = 'flex';
-      document.getElementById('forestContainer').innerHTML =
-        `<div class="placeholder" style="height:100px"><div class="placeholder-text">Building chain…</div></div>`;
-
+    async function fetchCriticalHighEntries() {
       try {
-        let chain;
-        if (chainCache[id]) {
-          chain = chainCache[id];
-        } else {
-          const data = await api(`/api/entries/${id}/chain`);
-          chain = data.chain || [];
-          chainCache[id] = chain;
-        }
-        renderForest(chain, entry);
-      } catch (e) {
-        renderForest([], entry);
-      }
-    }
+        // we use /api/entries with severity filter
+        const url = `${API_BASE}/api/entries?severity=critical&limit=50`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('entries fetch failed');
+        const data = await resp.json();
+        let criticalEntries = data.entries || [];
 
-    // ── RENDER FOREST ──
-    // Renders the chain as a branching process tree with registry leaves.
-    // The chain from the API is a flat array ordered root → writer.
-    // We reconstruct the tree by parent_pid matching so siblings appear as branches.
-    function renderForest(chain, entry) {
-      const container = document.getElementById('forestContainer');
-      container.innerHTML = '';
+        // also fetch high severity
+        const respHigh = await fetch(`${API_BASE}/api/entries?severity=high&limit=50`);
+        const highData = await respHigh.json();
+        let highEntries = highData.entries || [];
 
-      if (!chain.length) {
-        container.innerHTML = `<div class="placeholder" style="height:120px">
-          <div class="placeholder-text">No process chain found — run --events after enabling Audit Process Creation</div>
-        </div>`;
-        return;
-      }
-
-      // Update hint badge in header
-      const source = chain[chain.length - 1]?.source || '?';
-      const hintEl = document.getElementById('tv-hint');
-      if (source === 'inferred') {
-        hintEl.innerHTML = `<span class="tn-src s-inferred">inferred</span>`;
-      } else {
-        hintEl.innerHTML = `<span class="tn-src s-4688">4688</span>`;
-      }
-
-      // Build tree structure: each node can have children (processes) and regLeaves
-      // chain[0] = root, chain[last] = writer
-      const nodeMap = {};
-      chain.forEach((n, i) => {
-        nodeMap[i] = { ...n, _idx: i, _children: [], _regLeaves: [] };
-      });
-
-      // Link children by sequential parent-child (chain is already ordered root→writer)
-      // We attach each node as child of the previous one (the chain is linear from API)
-      // If the chain has branching (future), parent_pid is the real key
-      const roots = [];
-      for (let i = 0; i < chain.length; i++) {
-        if (i === 0) {
-          roots.push(nodeMap[i]);
-        } else {
-          // Find parent by pid match in earlier nodes
-          let parentIdx = -1;
-          for (let j = i - 1; j >= 0; j--) {
-            if (chain[j].pid === chain[i].pid) continue; // skip self
-            // The chain is built root→writer so node i-1 is always the parent
-            parentIdx = i - 1;
-            break;
-          }
-          if (parentIdx >= 0) {
-            nodeMap[parentIdx]._children.push(nodeMap[i]);
-          } else {
-            roots.push(nodeMap[i]);
-          }
-        }
-      }
-
-      // Attach the registry leaf to the last node (the writer)
-      const writerIdx = chain.length - 1;
-      nodeMap[writerIdx]._regLeaves.push(entry);
-
-      // Render each root tree
-      roots.forEach(root => {
-        const treeEl = document.createElement('div');
-        treeEl.className = 'forest-root-group';
-        renderTreeNode(root, treeEl, [], entry);
-        container.appendChild(treeEl);
-      });
-
-      // Auto-show detail for the writer node (last in chain)
-      const writerNode = nodeMap[writerIdx];
-      showNodeDetail(writerNode, entry, true);
-    }
-
-    // Recursively render a node and its children/leaves
-    // prefixGuides: array of booleans — true = draw vertical line, false = draw space
-    function renderTreeNode(node, container, prefixGuides, entry) {
-      const hasChildren = node._children.length > 0;
-      const hasLeaves = node._regLeaves.length > 0;
-
-      // ── Process node row ──
-      const row = document.createElement('div');
-      row.className = 'tree-row';
-
-      // Build indent guides for this row
-      const guidesEl = buildGuides(prefixGuides, true);
-      row.appendChild(guidesEl);
-
-      // Node card
-      const card = buildProcessCard(node, entry);
-      card.addEventListener('click', () => {
-        setSelected(card);
-        showNodeDetail(node, entry, false);
-      });
-      row.appendChild(card);
-      container.appendChild(row);
-
-      // ── Children and leaves ──
-      const totalSubItems = node._children.length + node._regLeaves.length;
-      let subItemIdx = 0;
-
-      // Render child process nodes first
-      node._children.forEach((child, ci) => {
-        subItemIdx++;
-        const isLastSubItem = (subItemIdx === totalSubItems);
-        // For child rows, prefix = parent prefixes + (isLastSubItem ? false : true)
-        const childPrefix = [...prefixGuides, !isLastSubItem];
-        renderTreeNode(child, container, childPrefix, entry);
-      });
-
-      // Render registry leaves
-      node._regLeaves.forEach((leaf, li) => {
-        subItemIdx++;
-        const isLastSubItem = (subItemIdx === totalSubItems);
-        const leafPrefix = [...prefixGuides, !isLastSubItem];
-
-        const leafRow = document.createElement('div');
-        leafRow.className = 'tree-row';
-
-        const leafGuides = buildGuides(leafPrefix, true);
-        leafRow.appendChild(leafGuides);
-
-        const leafCard = buildRegLeaf(leaf, node);
-        leafCard.addEventListener('click', () => {
-          setSelected(leafCard);
-          showLeafDetail(leaf, node);
+        let all = [...criticalEntries, ...highEntries];
+        // remove duplicates by id
+        const unique = new Map();
+        for (const e of all) unique.set(e.id, e);
+        currentEntries = Array.from(unique.values());
+        currentEntries.sort((a, b) => {
+          if (a.severity === 'critical' && b.severity !== 'critical') return -1;
+          if (a.severity !== 'critical' && b.severity === 'critical') return 1;
+          return (b.last_seen || '').localeCompare(a.last_seen || '');
         });
-        leafRow.appendChild(leafCard);
-        container.appendChild(leafRow);
-      });
-    }
-
-    // Build the indent guide column for a row
-    // prefixGuides: for each ancestor level, true = vertical line visible, false = empty space
-    // drawBranch: whether to draw the ├─ or └─ connector for this node itself
-    function buildGuides(prefixGuides, drawBranch) {
-      const wrap = document.createElement('div');
-      wrap.className = 'tree-guides';
-
-      prefixGuides.forEach((hasLine, i) => {
-        const isLast = (i === prefixGuides.length - 1);
-        const seg = document.createElement('div');
-        seg.className = 'guide-segment';
-
-        if (!isLast) {
-          // Ancestor columns: just vertical line or empty space
-          if (hasLine) {
-            const v = document.createElement('div');
-            v.className = 'guide-v';
-            seg.appendChild(v);
-          }
-        } else {
-          // Immediate parent column: draw ├─ or └─
-          // Top half: vertical line always (connects to sibling above)
-          const vTop = document.createElement('div');
-          vTop.className = 'guide-vt';
-          seg.appendChild(vTop);
-
-          const hRow = document.createElement('div');
-          hRow.style.display = 'flex';
-          hRow.style.alignItems = 'center';
-          hRow.style.height = '0';
-
-          const h = document.createElement('div');
-          h.className = 'guide-h';
-          hRow.appendChild(h);
-          seg.appendChild(hRow);
-
-          if (hasLine) {
-            const vBot = document.createElement('div');
-            vBot.className = 'guide-vb';
-            seg.appendChild(vBot);
-          }
-        }
-        wrap.appendChild(seg);
-      });
-
-      return wrap;
-    }
-
-    function buildProcessCard(node, entry) {
-      const card = document.createElement('div');
-      const typeClass = node.type || 'normal';
-      card.className = `tree-node t-${typeClass}`;
-
-      // Severity rollup from descendants — highlight border if this node leads to critical/high
-      const worstDescendant = getWorstDescendantSeverity(node, entry);
-      if (worstDescendant === 'critical') card.classList.add('has-critical');
-      else if (worstDescendant === 'high') card.classList.add('has-high');
-
-      const typeIcon = {
-        system: '⚙️',
-        normal: '📦',
-        suspicious: '⚠️',
-        malicious: '💀',
-        unknown: '❓',
-      }[typeClass] || '📦';
-
-      const srcClass = node.source === 'inferred' ? 's-inferred' : 's-4688';
-      const srcLabel = node.source === 'inferred' ? 'inferred' : '4688';
-
-      const metaItems = [];
-      if (node.user) metaItems.push(`<span class="tn-meta-item"><span class="tn-meta-lbl">user </span>${escHtml(node.user)}</span>`);
-      if (node.path) metaItems.push(`<span class="tn-meta-item"><span class="tn-meta-lbl">path </span>${escHtml(node.path.split('\\').pop())}</span>`);
-      if (node.event_time) metaItems.push(`<span class="tn-meta-item"><span class="tn-meta-lbl">time </span>${node.event_time.slice(0, 19).replace('T', ' ')}</span>`);
-
-      // Inline MITRE tags on the card (just IDs, full name in detail strip)
-      const mitreHtml = (node.techniques || []).map(t =>
-        `<a class="mitre-tag" href="https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/" target="_blank" onclick="event.stopPropagation()">${t.id}</a>`
-      ).join('');
-
-      card.innerHTML = `
-        <div class="tn-head">
-          <span class="tn-icon">${typeIcon}</span>
-          <span class="tn-name">${escHtml(node.name)}</span>
-          <span class="tn-pid">PID ${node.pid}</span>
-          <span class="tn-src ${srcClass}">${srcLabel}</span>
-        </div>
-        <div class="tn-meta">${metaItems.join('')}</div>
-        ${node.cmdline && node.type !== 'system' ? `<div class="cn-cmd" style="margin-top:6px;padding:4px 7px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--text2);word-break:break-all;line-height:1.55">${escHtml(node.cmdline.slice(0, 180))}${node.cmdline.length > 180 ? '…' : ''}</div>` : ''}
-        ${mitreHtml ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${mitreHtml}</div>` : ''}
-      `;
-      return card;
-    }
-
-    function buildRegLeaf(leaf, writerNode) {
-      const card = document.createElement('div');
-      const sevClass = `sev-${leaf.severity}`;
-      card.className = `reg-leaf ${sevClass}`;
-
-      const sevIcon = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' }[leaf.severity] || '⚪';
-
-      // Inline MITRE tags
-      const techniques = leaf.techniques || [];
-      const mitreHtml = techniques.map(t =>
-        `<a class="mitre-tag" href="https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/" target="_blank" onclick="event.stopPropagation()">${t.id}</a>`
-      ).join('');
-
-      card.innerHTML = `
-        <div class="rl-head">
-          <span class="rl-icon">🔑</span>
-          <span class="rl-name">${escHtml(leaf.name)}</span>
-          <span class="sev sev-${leaf.severity}">${leaf.severity}</span>
-        </div>
-        <div class="rl-hive">${escHtml(leaf.hive)}</div>
-        <div class="rl-val">${escHtml((leaf.value_data || '').slice(0, 120))}</div>
-        <div class="rl-foot">
-          ${mitreHtml}
-        </div>
-      `;
-      return card;
-    }
-
-    // Walk descendants to find worst severity bubble-up
-    function getWorstDescendantSeverity(node, entry) {
-      if (node._regLeaves && node._regLeaves.length > 0) {
-        const sevs = node._regLeaves.map(l => l.severity);
-        if (sevs.includes('critical')) return 'critical';
-        if (sevs.includes('high')) return 'high';
+        populateSelect(currentEntries);
+        return currentEntries;
+      } catch (e) {
+        console.error(e);
+        document.getElementById('chainContainer').innerHTML = `<div class="error">❌ Failed to fetch entries: ${e.message}. Make sure API is running on port 8000.</div>`;
+        return [];
       }
-      for (const child of (node._children || [])) {
-        const cs = getWorstDescendantSeverity(child, entry);
-        if (cs === 'critical') return 'critical';
-        if (cs === 'high') return 'high';
+    }
+
+    function populateSelect(entries) {
+      const select = document.getElementById('entrySelect');
+      select.innerHTML = '<option value="">— Select a registry entry to visualize chain —</option>';
+      for (const entry of entries) {
+        const option = document.createElement('option');
+        option.value = entry.id;
+        const severityTag = entry.severity === 'critical' ? '🔴 CRITICAL' : '🟠 HIGH';
+        option.textContent = `[${severityTag}] ${entry.name} (${entry.hive})`;
+        select.appendChild(option);
       }
-      return null;
     }
 
-    // ── SELECTION ──
-    function setSelected(el) {
-      if (selectedNodeEl) selectedNodeEl.classList.remove('selected');
-      selectedNodeEl = el;
-      el.classList.add('selected');
+    async function fetchAndRenderChain(entryId) {
+      const container = document.getElementById('chainContainer');
+      container.innerHTML = '<div class="loading">⏳ Building attack chain from Sysmon/4688 logs...</div>';
+
+      try {
+        const resp = await fetch(`${API_BASE}/api/entries/${entryId}/chain`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const chainData = await resp.json();
+        const chain = chainData.chain || [];
+        renderHorizontalChain(chain, chainData.entry_name);
+      } catch (err) {
+        container.innerHTML = `<div class="error">⚠️ Chain fetch error: ${err.message}<br>Make sure backend has chain data and Sysmon events.</div>`;
+      }
     }
 
-    // ── DETAIL STRIP: process node ──
-    function showNodeDetail(node, entry, isWriter) {
-      document.getElementById('detailStrip').classList.remove('hidden');
-      document.getElementById('detail-kind').textContent = isWriter ? 'Writer Process' : 'Process Node';
-
-      const typeColor = { malicious: 'red', suspicious: 'amber', normal: '', system: '', unknown: 'purple' }[node.type] || '';
-
-      document.getElementById('detailGrid').innerHTML = `
-        <div><div class="di-label">Process</div><div class="di-val">${escHtml(node.name)}</div></div>
-        <div><div class="di-label">PID</div><div class="di-val">${node.pid || '–'}</div></div>
-        <div><div class="di-label">Type</div><div class="di-val ${typeColor}">${(node.type || '').toUpperCase()}</div></div>
-        <div><div class="di-label">Source</div><div class="di-val ${node.source === 'inferred' ? 'purple' : ''}">${node.source || '–'}</div></div>
-        <div><div class="di-label">User</div><div class="di-val">${escHtml(node.user || '–')}</div></div>
-        <div><div class="di-label">Path</div><div class="di-val">${escHtml(node.path || '–')}</div></div>
-        <div><div class="di-label">Event Time</div><div class="di-val">${(node.event_time || '–').slice(0, 19).replace('T', ' ')}</div></div>
-        <div><div class="di-label">Command Line</div><div class="di-val">${escHtml((node.cmdline || '–').slice(0, 80))}</div></div>
-      `;
-
-      renderMitrePanel(node.techniques || []);
-    }
-
-    // ── DETAIL STRIP: registry leaf ──
-    function showLeafDetail(leaf, writerNode) {
-      document.getElementById('detailStrip').classList.remove('hidden');
-      document.getElementById('detail-kind').textContent = 'Registry Persistence Entry';
-
-      const sevColor = { critical: 'red', high: 'amber', medium: '', low: 'green' }[leaf.severity] || '';
-      const iocColor = (leaf.ioc_notes && !leaf.ioc_notes.includes('known-good')) ? 'red' : 'green';
-
-      document.getElementById('detailGrid').innerHTML = `
-        <div><div class="di-label">Name</div><div class="di-val">${escHtml(leaf.name)}</div></div>
-        <div><div class="di-label">Severity</div><div class="di-val ${sevColor}">${(leaf.severity || '').toUpperCase()}</div></div>
-        <div><div class="di-label">Hive</div><div class="di-val">${escHtml(leaf.hive || '–')}</div></div>
-        <div><div class="di-label">Hash ID</div><div class="di-val">${(leaf.hash_id || '–').slice(0, 12)}…</div></div>
-        <div><div class="di-label">IOC Notes</div><div class="di-val ${iocColor}">${escHtml(leaf.ioc_notes || '–')}</div></div>
-        <div><div class="di-label">First Seen</div><div class="di-val">${(leaf.first_seen || '–').slice(0, 19).replace('T', ' ')}</div></div>
-        <div><div class="di-label">Last Seen</div><div class="di-val">${(leaf.last_seen || '–').slice(0, 19).replace('T', ' ')}</div></div>
-        <div><div class="di-label">Writer</div><div class="di-val">${escHtml(writerNode?.name || 'unknown')}</div></div>
-      `;
-
-      renderMitrePanel(leaf.techniques || []);
-    }
-
-    function closeDetail() {
-      document.getElementById('detailStrip').classList.add('hidden');
-      if (selectedNodeEl) selectedNodeEl.classList.remove('selected');
-      selectedNodeEl = null;
-    }
-
-    // ── MITRE PANEL ──
-    function renderMitrePanel(techniques) {
-      const panel = document.getElementById('detailMitre');
-      const listEl = document.getElementById('detailMitreList');
-
-      if (!techniques || techniques.length === 0) {
-        panel.classList.add('hidden');
+    function renderHorizontalChain(chain, entryName) {
+      const container = document.getElementById('chainContainer');
+      if (!chain || chain.length === 0) {
+        container.innerHTML = `<div class="error">❗ No process chain available for this entry (no matching Sysmon/4688 events). Try refreshing Sysmon collection or check older entries.</div>`;
         return;
       }
 
-      panel.classList.remove('hidden');
+      // Build horizontal flex track
+      const track = document.createElement('div');
+      track.className = 'chain-track';
 
-      // Deduplicate by id
-      const seen = new Set();
-      const unique = techniques.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
+      for (let i = 0; i < chain.length; i++) {
+        const node = chain[i];
+        const card = createNodeCard(node);
+        track.appendChild(card);
 
-      listEl.innerHTML = unique.map(t => {
-        const url = `https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/`;
-        return `
-          <a class="mitre-detail-tag" href="${url}" target="_blank">
-            <span class="mitre-detail-id">${escHtml(t.id)}</span>
-            <span class="mitre-detail-name">${escHtml(t.name)}</span>
-          </a>
-        `;
-      }).join('');
-    }
-
-    // ── RAW TABLE ──
-    function renderRawTable() {
-      const rows = allEntries.map(e => `
-        <tr onclick="selectEntry(${e.id});switchTab('tree')">
-          <td>${escHtml(e.name)}</td>
-          <td style="color:var(--text3)">${e.hive}</td>
-          <td class="td-val">${escHtml(e.value_data || '')}</td>
-          <td><span class="sev sev-${e.severity}">${e.severity}</span></td>
-          <td style="color:var(--text3)">${(e.first_seen || '').slice(0, 19).replace('T', ' ')}</td>
-        </tr>
-      `).join('');
-      document.getElementById('rawBody').innerHTML = rows;
-    }
-
-    // ── TIMELINE ──
-    function renderTimeline() {
-      const sorted = [...allEntries].sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
-      const dotColor = { critical: 'var(--red)', high: 'var(--amber)', medium: 'var(--blue)', low: 'var(--green)' };
-      const html = sorted.map(e => `
-        <div class="tl-item" onclick="selectEntry(${e.id});switchTab('tree')">
-          <div class="tl-dot" style="border-color:${dotColor[e.severity] || 'var(--text3)'}"></div>
-          <div class="tl-time">${(e.last_seen || '').slice(0, 19).replace('T', ' ')}</div>
-          <div class="tl-card">
-            <div class="tl-card-head">
-              <span class="tl-name">${escHtml(e.name)}</span>
-              <span class="sev sev-${e.severity}">${e.severity}</span>
-            </div>
-            <div class="tl-hive">${e.hive}</div>
-            <div class="tl-val">${escHtml((e.value_data || '').slice(0, 90))}</div>
-          </div>
-        </div>
-      `).join('');
-      document.getElementById('tlItems').innerHTML = html;
-    }
-
-    // ── FILTER ──
-    function setFilter(btn, val) {
-      filter = val;
-      document.querySelectorAll('.filt').forEach(b => b.classList.remove('on'));
-      btn.classList.add('on');
-      renderEntryList();
-    }
-
-    // ── TABS ──
-    function switchTab(name) {
-      ['tree', 'raw', 'timeline'].forEach(t => {
-        document.getElementById(`tab-${t}`).classList.toggle('on', t === name);
-        document.getElementById(`view-${t}`).classList.toggle('hidden', t !== name);
-      });
-      activeTab = name;
-    }
-
-    // ── SCAN ──
-    async function triggerScan() {
-      const btn = document.getElementById('scanBtn');
-      btn.disabled = true;
-      btn.textContent = '⏳ Scanning...';
-      chainCache = {};  // invalidate chain cache
-      try {
-        await api('/api/scan', 'POST', { extended: false });
-        await api('/api/collect-events', 'POST', { hours_back: 24 });
-        setTimeout(async () => {
-          await loadStats();
-          await loadEntries();
-          btn.disabled = false;
-          btn.textContent = '↺ Re-Scan';
-        }, 2500);
-      } catch (e) {
-        btn.disabled = false;
-        btn.textContent = '↺ Re-Scan';
-        alert('Scan failed — is the API running?');
+        // add arrow if not last
+        if (i < chain.length - 1) {
+          const arrowSpan = document.createElement('div');
+          arrowSpan.className = 'arrow-symbol';
+          arrowSpan.innerHTML = '→';
+          track.appendChild(arrowSpan);
+        }
       }
+
+      // Add small header with entry context
+      const headerDiv = document.createElement('div');
+      headerDiv.style.marginBottom = '16px';
+      headerDiv.style.fontSize = '0.8rem';
+      headerDiv.style.color = '#b9c7db';
+      headerDiv.innerHTML = `<span style="background:#0f172a; padding:4px 12px; border-radius:40px;">🎯 Target persistence: <strong>${escapeHtml(entryName)}</strong></span>`;
+
+      container.innerHTML = '';
+      container.appendChild(headerDiv);
+      container.appendChild(track);
     }
 
-    // ── HELPERS ──
-    async function api(path, method = 'GET', body = null) {
-      const opts = { method, headers: { 'Content-Type': 'application/json' } };
-      if (body) opts.body = JSON.stringify(body);
-      const r = await fetch(API + path, opts);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
+    function createNodeCard(node) {
+      const card = document.createElement('div');
+      card.className = `proc-card type-${node.type || 'unknown'}`;
+
+      // header: name + pid + source badge
+      const header = document.createElement('div');
+      header.className = 'card-header';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'proc-name';
+      nameSpan.textContent = node.name || 'unknown.exe';
+
+      const pidSpan = document.createElement('span');
+      pidSpan.className = 'pid';
+      pidSpan.textContent = node.pid ? `PID ${node.pid}` : 'PID ?';
+
+      let sourceClass = 'source-badge';
+      let sourceText = node.source || 'inferred';
+      if (sourceText.includes('sysmon')) sourceClass += ' source-sysmon';
+      else if (sourceText.includes('4688')) sourceClass += ' source-4688';
+      else sourceClass += ' source-inferred';
+
+      const sourceBadge = document.createElement('span');
+      sourceBadge.className = sourceClass;
+      sourceBadge.textContent = sourceText.toUpperCase();
+
+      header.appendChild(nameSpan);
+      header.appendChild(pidSpan);
+      header.appendChild(sourceBadge);
+
+      // body: user, mitre techniques, optional command line
+      const body = document.createElement('div');
+      body.className = 'card-body';
+
+      if (node.user && node.user !== 'unknown') {
+        const userDiv = document.createElement('div');
+        userDiv.className = 'user-info';
+        userDiv.innerHTML = `👤 ${escapeHtml(node.user)}`;
+        body.appendChild(userDiv);
+      }
+
+      // MITRE techniques
+      if (node.techniques && node.techniques.length) {
+        const techDiv = document.createElement('div');
+        techDiv.style.marginTop = '4px';
+        techDiv.style.marginBottom = '6px';
+        for (const t of node.techniques) {
+          const badge = document.createElement('span');
+          badge.className = 'mitre-badge';
+          badge.textContent = t.id || (typeof t === 'string' ? t : t.id);
+          if (t.name) badge.title = t.name;
+          techDiv.appendChild(badge);
+        }
+        body.appendChild(techDiv);
+      }
+
+      // Command line (if exists and not empty)
+      if (node.cmdline && node.cmdline.trim().length > 0) {
+        const cmdDiv = document.createElement('div');
+        cmdDiv.className = 'cmdline';
+        let cmdShort = node.cmdline.length > 100 ? node.cmdline.substring(0, 97) + '...' : node.cmdline;
+        cmdDiv.textContent = cmdShort;
+        cmdDiv.title = node.cmdline;  // full on hover
+        body.appendChild(cmdDiv);
+      } else if (node.type === 'unknown' && node.unknown_reason) {
+        const unknownNote = document.createElement('div');
+        unknownNote.className = 'cmdline';
+        unknownNote.style.background = '#2d1a1a';
+        unknownNote.textContent = `⚠️ ${node.unknown_reason}`;
+        body.appendChild(unknownNote);
+      }
+
+      card.appendChild(header);
+      card.appendChild(body);
+      return card;
     }
 
-    function escHtml(str) {
-      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/[&<>]/g, function (m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+      });
     }
 
-    // ── START ──
-    init();
+    // Event handlers
+    document.getElementById('entrySelect').addEventListener('change', (e) => {
+      const entryId = e.target.value;
+      if (entryId) {
+        fetchAndRenderChain(entryId);
+      } else {
+        document.getElementById('chainContainer').innerHTML = '<div class="loading">✨ Select an entry to view EDR horizontal chain</div>';
+      }
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', async () => {
+      await fetchCriticalHighEntries();
+      await fetchStats();
+      const select = document.getElementById('entrySelect');
+      if (select.value) {
+        fetchAndRenderChain(select.value);
+      }
+    });
+
+    // initial load
+    (async () => {
+      await fetchStats();
+      await fetchCriticalHighEntries();
+      // optionally pre-select first entry
+      const select = document.getElementById('entrySelect');
+      if (select.options.length > 1) {
+        select.selectedIndex = 1;  // first real entry
+        const firstId = select.value;
+        if (firstId) fetchAndRenderChain(firstId);
+      }
+    })();
   </script>
 </body>
 
