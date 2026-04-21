@@ -206,6 +206,9 @@ class RegistryCollector(BaseCollector):
             result["writer_source"] = "sysmon_exact"
             result["process_name"]  = result.get("proc_name") or result.get("reg_proc_name", "unknown")
             result["command_line"]  = result.get("command_line") or ""
+            # Remap aliased columns to the standard names _walk_chain expects
+            result["event_time"]    = result.get("proc_time") or result.get("reg_time")
+            result["process_path"]  = result.get("process_path") or ""
             return result
 
         # 2. Fallback: match by executable name in process_events (timestamp-guarded)

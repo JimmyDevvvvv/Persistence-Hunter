@@ -1,11 +1,28 @@
 <Sysmon schemaversion="4.90">
   <EventFiltering>
-    <RuleGroup name="reghunt" groupRelation="or">
+
+    <!-- Event ID 1: Process Creation — capture everything except noise -->
+    <RuleGroup name="ProcessCreate" groupRelation="or">
+      <ProcessCreate onmatch="exclude">
+        <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+        <Image condition="is">C:\Windows\System32\WerFault.exe</Image>
+        <Image condition="is">C:\Windows\System32\conhost.exe</Image>
+        <Image condition="is">C:\Windows\System32\SearchIndexer.exe</Image>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- Event ID 13: Registry writes — persistence keys -->
+    <RuleGroup name="RegistryEvent" groupRelation="or">
       <RegistryEvent onmatch="include">
         <TargetObject condition="contains">CurrentVersion\Run</TargetObject>
         <TargetObject condition="contains">CurrentVersion\RunOnce</TargetObject>
         <TargetObject condition="contains">Winlogon</TargetObject>
+        <TargetObject condition="contains">CurrentVersion\Image File Execution Options</TargetObject>
+        <TargetObject condition="contains">CurrentVersion\Windows\Load</TargetObject>
+        <TargetObject condition="contains">CurrentVersion\Policies\Explorer\Run</TargetObject>
+        <TargetObject condition="contains">ScheduledTasks</TargetObject>
       </RegistryEvent>
     </RuleGroup>
+
   </EventFiltering>
 </Sysmon>
