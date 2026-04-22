@@ -254,10 +254,20 @@ class BaseCollector:
     MAX_HOURS     = 720
     MAX_DEPTH     = 15
 
+    # Hard system boundary — append and stop, never walk past these
     SYSTEM_PROCS = {
         "system", "smss.exe", "csrss.exe", "wininit.exe",
-        "winlogon.exe", "services.exe", "lsass.exe", "svchost.exe", "System",
+        "winlogon.exe", "services.exe", "lsass.exe", "System",
     }
+    # Natural user-session roots — append and stop (these are the A in A->Z)
+    SHELL_PROCS = {
+        "explorer.exe", "userinit.exe", "dwm.exe",
+        "taskhostw.exe", "sihost.exe", "runtimebroker.exe",
+        "searchhost.exe", "startmenuexperiencehost.exe",
+    }
+    # svchost.exe: stop walking upward past it (services.exe is its parent, not interesting)
+    SVCHOST_BOUNDARY = {"svchost.exe"}
+
     SYSTEM_PIDS  = {0, 4}
     SYSMON_CHANNEL = "Microsoft-Windows-Sysmon/Operational"
 
@@ -738,18 +748,31 @@ class BaseCollector:
     # ------------------------------------------------------------------
 
     def _classify_node(self, proc: dict) -> str:
-        path = (proc.get("process_path") or "").lower()
-        name = (proc.get("process_name") or "").lower()
-        cmd  = (proc.get("command_line") or "").lower()
-        pid  = proc.get("pid")
+        path   = (proc.get("process_path") or "").lower()
+        name   = (proc.get("process_name") or "").lower()
+        cmd    = (proc.get("command_line") or "").lower()
+        pid    = proc.get("pid")
+        source = proc.get("_source_table") or proc.get("writer_source") or ""
+
+        # Synthesized stubs (explorer.exe etc. resolved from live process list)
+        if source == "stub":
+            return "normal"
 
         if pid in (4, 0) or name in {p.lower() for p in self.SYSTEM_PROCS}:
             return "system"
 
-        # Malicious: suspicious path OR LOLBin with attack flags
+        if name in {p.lower() for p in self.SHELL_PROCS}:
+            return "normal"
+
+        if name in {p.lower() for p in self.SVCHOST_BOUNDARY}:
+            return "system"
+
+        # Malicious: binary living in a suspicious path
         for sus in SUSPICIOUS_PATHS:
             if sus in path:
                 return "malicious"
+
+        # Malicious: LOLBin with attack-grade flags
         for lol in LOLBINS:
             if lol in name:
                 if any(x in cmd for x in ["-enc", "-nop", "bypass", "hidden",
@@ -757,11 +780,13 @@ class BaseCollector:
                                            "invoke-expression", "frombase64"]):
                     return "malicious"
 
-        # Suspicious: in a suspicious path, OR is a LOLBin (any LOLBin in chain = worth flagging)
+        # Suspicious: path is sketchy even without attack flags
         if any(sus in path for sus in SUSPICIOUS_PATHS):
             return "suspicious"
-        if name in [l.lower() for l in LOLBINS]:
-            return "suspicious"   # all LOLBins flagged — was only flagging with bad cmdline before
+
+        # Suspicious: bare LOLBin in chain (reg.exe, cmd.exe, powershell.exe etc.)
+        if name in {l.lower() for l in LOLBINS}:
+            return "suspicious"
 
         return "normal"
 
@@ -773,43 +798,171 @@ class BaseCollector:
         """, (entry_type, entry_id, json.dumps(chain), datetime.now().isoformat()))
         self.conn.commit()
 
+    # ------------------------------------------------------------------
+    # Live process resolution (EDR-style: fills gaps beyond the log window)
+    # ------------------------------------------------------------------
+
+    def _resolve_live_process(self, pid: int) -> dict | None:
+        """
+        Resolve a PID that has no event log record (e.g. explorer.exe, started
+        at login — long before any collection window).
+        Tries psutil first (richest), then WMI, then tasklist as last resort.
+        Returns a stub-flagged dict or None.
+        """
+        if not pid or pid == 0:
+            return None
+
+        # --- psutil (best: gives exe path, cmdline, ppid, username) ---
+        try:
+            import psutil
+            p    = psutil.Process(pid)
+            info = p.as_dict(attrs=["name", "exe", "cmdline", "ppid", "username", "create_time"])
+            return {
+                "pid":          pid,
+                "parent_pid":   info.get("ppid"),
+                "process_name": info.get("name") or "",
+                "process_path": info.get("exe") or "",
+                "command_line": " ".join(info.get("cmdline") or []),
+                "user_name":    info.get("username") or "",
+                "event_time":   "",          # no log timestamp for stubs
+                "_source_table": "stub",
+                "writer_source": "stub",
+            }
+        except Exception:
+            pass
+
+        # --- WMI fallback ---
+        try:
+            import subprocess
+            out = subprocess.check_output(
+                ["wmic", "process", "where", f"ProcessId={pid}",
+                 "get", "Name,ExecutablePath,CommandLine,ParentProcessId,Caption", "/format:csv"],
+                timeout=5, text=True, stderr=subprocess.DEVNULL,
+            )
+            for line in out.splitlines():
+                parts = line.strip().split(",")
+                if len(parts) >= 5 and parts[0]:
+                    try:
+                        ppid = int(parts[4]) if parts[4].strip().isdigit() else None
+                    except Exception:
+                        ppid = None
+                    return {
+                        "pid":           pid,
+                        "parent_pid":    ppid,
+                        "process_name":  parts[1].strip() or parts[0].strip(),
+                        "process_path":  parts[2].strip(),
+                        "command_line":  parts[3].strip(),
+                        "user_name":     "",
+                        "event_time":    "",
+                        "_source_table": "stub",
+                        "writer_source": "stub",
+                    }
+        except Exception:
+            pass
+
+        # --- tasklist (name only — minimal stub) ---
+        try:
+            import subprocess
+            out = subprocess.check_output(
+                ["tasklist", "/fi", f"PID eq {pid}", "/fo", "csv", "/nh"],
+                timeout=3, text=True, stderr=subprocess.DEVNULL,
+            )
+            for line in out.splitlines():
+                line = line.strip().strip('"')
+                if not line:
+                    continue
+                parts = [p.strip('"') for p in line.split('","')]
+                if parts and parts[0] and parts[0].lower().endswith(".exe"):
+                    return {
+                        "pid":           pid,
+                        "parent_pid":    None,
+                        "process_name":  parts[0],
+                        "process_path":  "",
+                        "command_line":  "",
+                        "user_name":     "",
+                        "event_time":    "",
+                        "_source_table": "stub",
+                        "writer_source": "stub",
+                    }
+        except Exception:
+            pass
+
+        return None
+
     def _walk_chain(self, writer: dict) -> list[dict]:
-        """Walk parent PIDs upward and return ordered node list (root first)."""
-        chain_nodes   = []
-        visited_pids  = set()
-        current       = writer
-        depth         = 0
+        """
+        EDR-style chain walk: traverse parent PIDs from the writer all the way
+        to the session root (explorer.exe / services.exe / system).
+
+        Strategy (in order):
+          1. Look up parent in sysmon_process_events (richest — has cmdline, hashes)
+          2. Fall back to process_events (4688 — less detail but wider coverage)
+          3. If neither has a record (process started before the collection window),
+             call _resolve_live_process() to synthesize a stub from the live OS.
+          4. Stop when we hit a SYSTEM_PROC, a SHELL_PROC, a SVCHOST_BOUNDARY,
+             a PID loop, or MAX_DEPTH.
+        """
+        chain_nodes  = []
+        visited_pids = set()
+        current      = writer
+        depth        = 0
 
         while current and depth < self.MAX_DEPTH:
             pid  = current.get("pid")
             name = (current.get("process_name") or "").lower()
 
+            # Loop guard
             if pid in visited_pids:
                 break
-            visited_pids.add(pid)
+            if pid is not None:
+                visited_pids.add(pid)
 
+            # Hard system boundary — append and stop
             if pid in self.SYSTEM_PIDS or name in {p.lower() for p in self.SYSTEM_PROCS}:
                 chain_nodes.append(current)
                 break
 
             chain_nodes.append(current)
 
-            parent_pid  = current.get("parent_pid")
-            parent_time = current.get("event_time")
-            if not parent_pid or not parent_time:
+            # Natural session roots — stop here (this IS the top of the user chain)
+            if name in {p.lower() for p in self.SHELL_PROCS}:
                 break
 
-            parent = self._find_parent(parent_pid, parent_time)
-            if not parent:
-                parent = self._find_process_by_pid(parent_pid, parent_time)
-            if not parent:
+            # svchost boundary — stop walking upward
+            if name in {p.lower() for p in self.SVCHOST_BOUNDARY}:
                 break
 
-            # Timestamp sanity check: parent must have started BEFORE child.
-            # If parent event_time > child event_time, it's a PID reuse ghost — drop it.
-            parent_evt = parent.get("event_time") or ""
-            current_evt = current.get("event_time") or ""
-            if parent_evt and current_evt and parent_evt > current_evt:
+            parent_pid = current.get("parent_pid")
+            if not parent_pid or parent_pid == 0:
+                break
+
+            # --- 1. Try event log (sysmon preferred, then 4688) ---
+            # Use child's event_time as the upper bound so we don't pick a
+            # recycled PID that started AFTER the child.
+            child_time = current.get("event_time") or datetime.now().isoformat()
+            parent = self._find_parent(parent_pid, child_time)
+            if not parent:
+                parent = self._find_process_by_pid(parent_pid, child_time)
+
+            # --- 2. Timestamp sanity (60-second grace for log latency) ---
+            if parent and parent.get("_source_table") != "stub":
+                p_evt = parent.get("event_time") or ""
+                c_evt = child_time
+                if p_evt and c_evt:
+                    try:
+                        p_dt = datetime.fromisoformat(p_evt)
+                        c_dt = datetime.fromisoformat(c_evt)
+                        if (p_dt - c_dt).total_seconds() > 60:
+                            # Likely a PID-reuse ghost — fall through to live lookup
+                            parent = None
+                    except Exception:
+                        pass
+
+            # --- 3. Live OS stub — fills gap for long-running parents ---
+            if not parent:
+                parent = self._resolve_live_process(parent_pid)
+
+            if not parent:
                 break
 
             current = parent

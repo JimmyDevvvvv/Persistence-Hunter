@@ -420,8 +420,17 @@ class TaskCollector(BaseCollector):
             node_type = self._classify_node(proc)
             name      = proc.get("process_name", "unknown")
             pid       = proc.get("pid")
-            if pid in self.SYSTEM_PIDS or name.lower() in {p.lower() for p in self.SYSTEM_PROCS}:
+            source    = proc.get("writer_source") or proc.get("_source_table") or "?"
+
+            # Override classification for known boundary types
+            name_l = name.lower()
+            if pid in self.SYSTEM_PIDS or name_l in {p.lower() for p in self.SYSTEM_PROCS}:
                 node_type = "system"
+            elif name_l in {p.lower() for p in self.SHELL_PROCS}:
+                node_type = "normal"
+            elif source == "stub":
+                node_type = "normal"
+
             node = {
                 "pid":        pid,
                 "name":       name,
@@ -431,7 +440,7 @@ class TaskCollector(BaseCollector):
                 "cmdline":    proc.get("command_line", ""),
                 "event_time": proc.get("event_time", ""),
                 "depth":      i,
-                "source":     proc.get("writer_source", proc.get("_source_table", "?")),
+                "source":     source,
                 "techniques": tag_process(name, proc.get("command_line", "")),
                 "action":     proc.get("action"),
             }

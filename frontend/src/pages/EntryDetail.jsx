@@ -5,16 +5,17 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchEntry, fetchChain, triggerEnrichment } from '../api/client'
 import { ProcessTree } from '../components/features/ProcessTree'
 import { EnrichmentPanel } from '../components/features/EnrichmentPanel'
+import { ThreatScorePanel } from '../components/features/Threatscore'
 
 const SEV_SCORE = { critical: 95, high: 88, medium: 45, low: 15 }
 
 const TYPE_BADGE = {
     registry: { label: 'Registry', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)', border: 'rgba(59,130,246,0.35)' },
-    task:     { label: 'Task',     color: '#f59e0b', bg: 'rgba(245,158,11,0.15)', border: 'rgba(245,158,11,0.35)' },
-    service:  { label: 'Service',  color: '#10b981', bg: 'rgba(16,185,129,0.15)', border: 'rgba(16,185,129,0.35)' },
-    startup:  { label: 'Startup',  color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)', border: 'rgba(139,92,246,0.35)' },
-    ifeo:     { label: 'IFEO',     color: '#06b6d4', bg: 'rgba(6,182,212,0.15)',  border: 'rgba(6,182,212,0.35)'  },
-    'run key':{ label: 'Run Key',  color: '#f97316', bg: 'rgba(249,115,22,0.15)', border: 'rgba(249,115,22,0.35)' },
+    task: { label: 'Task', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)', border: 'rgba(245,158,11,0.35)' },
+    service: { label: 'Service', color: '#10b981', bg: 'rgba(16,185,129,0.15)', border: 'rgba(16,185,129,0.35)' },
+    startup: { label: 'Startup', color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)', border: 'rgba(139,92,246,0.35)' },
+    ifeo: { label: 'IFEO', color: '#06b6d4', bg: 'rgba(6,182,212,0.15)', border: 'rgba(6,182,212,0.35)' },
+    'run key': { label: 'Run Key', color: '#f97316', bg: 'rgba(249,115,22,0.15)', border: 'rgba(249,115,22,0.35)' },
 }
 
 function getTypeBadge(entryType, iocNotes) {
@@ -27,9 +28,9 @@ function getTypeBadge(entryType, iocNotes) {
 function ScoreBox({ score, severity }) {
     const colors = {
         critical: { color: '#ff3560', border: '#ff3560', bg: 'rgba(255,53,96,0.15)' },
-        high:     { color: '#f97316', border: '#f97316', bg: 'rgba(249,115,22,0.15)' },
-        medium:   { color: '#f5c518', border: '#f5c518', bg: 'rgba(245,197,24,0.12)' },
-        low:      { color: '#00e599', border: '#00e599', bg: 'rgba(0,229,153,0.1)'   },
+        high: { color: '#f97316', border: '#f97316', bg: 'rgba(249,115,22,0.15)' },
+        medium: { color: '#f5c518', border: '#f5c518', bg: 'rgba(245,197,24,0.12)' },
+        low: { color: '#00e599', border: '#00e599', bg: 'rgba(0,229,153,0.1)' },
     }
     const c = colors[severity] || colors.medium
     return (
@@ -76,10 +77,10 @@ function TechBadge({ id, name }) {
 
 function SevBadge({ severity }) {
     const colors = {
-        critical: { color: 'var(--red)',    bg: 'rgba(255,53,96,0.12)',  border: 'rgba(255,53,96,0.35)'  },
-        high:     { color: 'var(--orange)', bg: 'rgba(249,115,22,0.12)', border: 'rgba(249,115,22,0.35)' },
-        medium:   { color: 'var(--yellow)', bg: 'rgba(245,197,24,0.1)',  border: 'rgba(245,197,24,0.3)'  },
-        low:      { color: 'var(--green)',  bg: 'rgba(0,229,153,0.08)',  border: 'rgba(0,229,153,0.25)'  },
+        critical: { color: 'var(--red)', bg: 'rgba(255,53,96,0.12)', border: 'rgba(255,53,96,0.35)' },
+        high: { color: 'var(--orange)', bg: 'rgba(249,115,22,0.12)', border: 'rgba(249,115,22,0.35)' },
+        medium: { color: 'var(--yellow)', bg: 'rgba(245,197,24,0.1)', border: 'rgba(245,197,24,0.3)' },
+        low: { color: 'var(--green)', bg: 'rgba(0,229,153,0.08)', border: 'rgba(0,229,153,0.25)' },
     }
     const c = colors[severity] || colors.medium
     return (
@@ -134,18 +135,18 @@ export function EntryDetail() {
         </div>
     )
 
-    const name       = entry.name || entry.task_name || entry.service_name || '?'
-    const value      = entry.value_data || entry.command || entry.binary_path || ''
+    const name = entry.name || entry.task_name || entry.service_name || '?'
+    const value = entry.value_data || entry.command || entry.binary_path || ''
     const techniques = entry.techniques || []
-    const score      = SEV_SCORE[entry.severity] ?? 0
-    const chain      = chainData?.chain || []
-    const chainLine  = chain.length > 0 ? chain.map(n => n.name).join(' → ') : ''
-    const riskCount  = entry.enrichment?.risk_indicators?.length || 0
+    const score = SEV_SCORE[entry.severity] ?? 0
+    const chain = chainData?.chain || []
+    const chainLine = chain.length > 0 ? chain.map(n => n.name).join(' → ') : ''
+    const riskCount = entry.enrichment?.risk_indicators?.length || 0
 
     // Anomalies
     const anomalies = []
     if (chain.some(n => n.type === 'malicious')) anomalies.push('malicious_writer')
-    const hasLolbin = chain.some(n => ['powershell.exe','cmd.exe','reg.exe','rundll32.exe','mshta.exe'].includes(n.name?.toLowerCase()))
+    const hasLolbin = chain.some(n => ['powershell.exe', 'cmd.exe', 'reg.exe', 'rundll32.exe', 'mshta.exe'].includes(n.name?.toLowerCase()))
     if (hasLolbin && chain.length >= 2) anomalies.push('lolbin_chain')
     if (chain.some(n => n.source === 'unknown')) anomalies.push('no_origin')
     if (entry.ioc_notes?.toLowerCase().includes('suspicious')) anomalies.push('suspicious_path')
@@ -154,10 +155,11 @@ export function EntryDetail() {
     if (iocLower.includes('ifeo') || iocLower.includes('debugger')) anomalies.push('ifeo_accessibility_hijack')
 
     const tabs = [
-        { key: 'chain',   label: 'Attack Chain', count: chain.length },
+        { key: 'chain', label: 'Attack Chain', count: chain.length },
         { key: 'details', label: 'Details' },
-        { key: 'enrich',  label: 'Enrichment' },
-        { key: 'risk',    label: 'Risk Flags', count: riskCount },
+        { key: 'enrich', label: 'Enrichment' },
+        { key: 'threat', label: 'Threat Intel' },
+        { key: 'risk', label: 'Risk Flags', count: riskCount },
     ]
 
     return (
@@ -334,17 +336,17 @@ export function EntryDetail() {
                             </div>
                             <div style={{ padding: '4px 16px 8px' }}>
                                 {[
-                                    ['Name',       name,                           true],
-                                    ['Value / Path', value,                        true],
-                                    ['Hive',       entry.hive,                     true],
-                                    ['Reg Path',   entry.reg_path,                 true],
-                                    ['Run As',     entry.run_as,                   false],
-                                    ['Start Type', entry.start_type,               false],
-                                    ['Trigger',    entry.trigger_type,             false],
-                                    ['IOC Notes',  entry.ioc_notes,                false],
+                                    ['Name', name, true],
+                                    ['Value / Path', value, true],
+                                    ['Hive', entry.hive, true],
+                                    ['Reg Path', entry.reg_path, true],
+                                    ['Run As', entry.run_as, false],
+                                    ['Start Type', entry.start_type, false],
+                                    ['Trigger', entry.trigger_type, false],
+                                    ['IOC Notes', entry.ioc_notes, false],
                                     ['First Seen', entry.first_seen?.slice(0, 19), false],
-                                    ['Last Seen',  entry.last_seen?.slice(0, 19),  false],
-                                    ['Entry ID',   `${type}/${id}`,                true],
+                                    ['Last Seen', entry.last_seen?.slice(0, 19), false],
+                                    ['Entry ID', `${type}/${id}`, true],
                                 ].map(([label, val, mono]) => val ? (
                                     <div key={label} style={{ display: 'flex', gap: 16, padding: '8px 0', borderBottom: '1px solid var(--bg-border)' }}>
                                         <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 10.5, color: 'var(--text-muted)', width: 90, flexShrink: 0 }}>{label}</span>
@@ -358,6 +360,12 @@ export function EntryDetail() {
 
                 {tab === 'enrich' && (
                     <EnrichmentPanel enrichment={entry.enrichment} />
+                )}
+
+                {tab === 'threat' && (
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                        <ThreatScorePanel entryType={type} entryId={id} />
+                    </div>
                 )}
 
                 {tab === 'risk' && (

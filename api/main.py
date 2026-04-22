@@ -63,3 +63,5 @@ app.include_router(baseline.router,   prefix="/api/baseline",  tags=["Baseline"]
 app.include_router(enrichment.router, prefix="/api/enrich",    tags=["Enrichment"])
 app.include_router(search.router,     prefix="/api/search",    tags=["Search"])
 app.include_router(export.router,     prefix="/api/export",    tags=["Export"])
+from .routes.scores import router as scores_router
+app.include_router(scores_router, prefix="/api")

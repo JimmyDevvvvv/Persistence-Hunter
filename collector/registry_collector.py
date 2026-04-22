@@ -311,7 +311,7 @@ class RegistryCollector(BaseCollector):
         proc_name = proc.get("process_name") or "unknown"
         cmdline   = proc.get("command_line") or ""
         pid       = proc.get("pid")
-        source    = proc.get("writer_source", "sysmon/4688")
+        source    = proc.get("writer_source") or proc.get("_source_table") or "sysmon/4688"
 
         if source == "unknown":
             return {
@@ -333,10 +333,13 @@ class RegistryCollector(BaseCollector):
             }
 
         node_type = self._classify_node(proc)
-        # override: system processes
+        # override: hard system processes
         name_l = proc_name.lower()
         if pid in self.SYSTEM_PIDS or name_l in {p.lower() for p in self.SYSTEM_PROCS}:
             node_type = "system"
+        # shell roots stay normal
+        if name_l in {p.lower() for p in self.SHELL_PROCS}:
+            node_type = "normal"
 
         node = {
             "pid":        pid,
@@ -395,11 +398,11 @@ def format_chain_node(node: dict, indent: str, show_cmdline: bool = True) -> str
     lines = []
 
     color_map = {
-        "system":    Colors.GREY + Colors.DIM,
-        "normal":    Colors.GREEN,
+        "system":     Colors.GREY + Colors.DIM,
+        "normal":     Colors.GREEN,
         "suspicious": Colors.YELLOW,
-        "malicious": Colors.RED + Colors.BOLD,
-        "unknown":   Colors.GREY,
+        "malicious":  Colors.RED + Colors.BOLD,
+        "unknown":    Colors.GREY,
     }
     icon_map = {
         "system": "⚙️", "normal": "📦",
@@ -408,13 +411,28 @@ def format_chain_node(node: dict, indent: str, show_cmdline: bool = True) -> str
     color = color_map.get(node.get("type"), Colors.RESET)
     icon  = icon_map.get(node.get("type"), "❓")
 
-    if node.get("source") == "unknown":
+    source = node.get("source", "?")
+
+    if source == "unknown":
         main = indent + icon + " " + node["name"] + " (PID unknown) [unknown]"
         lines.append(color + main + Colors.RESET)
         if node.get("unknown_reason"):
             lines.append(indent + Colors.YELLOW + "   ⚠️  " + node["unknown_reason"] + Colors.RESET)
+    elif source == "stub":
+        # Live-resolved process — no event log record, resolved from OS
+        pid_str = str(node["pid"]) if node.get("pid") else "?"
+        main    = (indent + icon + " " + node["name"] +
+                   " (PID " + pid_str + ") " +
+                   Colors.DIM + "[live/stub]" + Colors.RESET + color)
+        user_str = node.get("user", "")
+        if user_str:
+            main += " - " + user_str
+        lines.append(color + main + Colors.RESET)
+        # Show path if we got it (psutil gives us this)
+        if node.get("path"):
+            lines.append(indent + Colors.DIM + "   📂 " + node["path"] + Colors.RESET)
     else:
-        src_badge = "[" + node.get("source", "?") + "]"
+        src_badge = "[" + source + "]"
         user_str  = node.get("user", "")
         main      = (indent + icon + " " + node["name"] +
                      " (PID " + str(node["pid"]) + ") " + src_badge)
@@ -422,7 +440,7 @@ def format_chain_node(node: dict, indent: str, show_cmdline: bool = True) -> str
             main += " - " + user_str
         lines.append(color + main + Colors.RESET)
 
-    if show_cmdline and node.get("cmdline"):
+    if show_cmdline and node.get("cmdline") and source != "stub":
         cmd = node["cmdline"]
         if len(cmd) > 80:
             cmd = cmd[:77] + "..."

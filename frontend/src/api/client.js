@@ -57,3 +57,10 @@ export const triggerEnrichment = (type, id) =>
 // ── Export ───────────────────────────────────────────────────────────────────
 export const exportMitre = () =>
     api.get('/api/export/mitre').then(r => r.data)
+
+// ── Scores ───────────────────────────────────────────────────────────────────
+export const fetchScore = (type, id) =>
+    api.get(`/api/scores/${type}/${id}`).then(r => r.data)
+
+export const triggerScores = () =>
+    api.post('/api/scores/run').then(r => r.data)
