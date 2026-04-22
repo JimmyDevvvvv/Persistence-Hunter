@@ -275,7 +275,7 @@ function APTIntelPanel({ group, sig }) {
 }
 
 // ── Score breakdown bar ──────────────────────────────────────────
-function BreakdownBar({ factor, delta, description }) {
+function BreakdownBar({ delta, description }) {
     const color = delta >= 30 ? '#ff2055' : delta >= 20 ? '#ff7700' : delta >= 10 ? '#ffd60a' : '#00e676'
     const ref = useRef(null)
 
@@ -313,7 +313,7 @@ function BreakdownBar({ factor, delta, description }) {
 }
 
 // ── Main component ───────────────────────────────────────────────
-export function ThreatScorePanel({ entryType, entryId }) {
+export function ThreatScorePanel({ entryType, entryId, hideRiskIndicators = false, hideBreakdown = false }) {
     const [activeGroup, setActiveGroup] = useState(null)
     const [isScoring, setIsScoring] = useState(false)
     const queryClient = useQueryClient()
@@ -348,7 +348,7 @@ export function ThreatScorePanel({ entryType, entryId }) {
         </div>
     )
 
-    if (!data?.score) return (
+    if (data?.score == null) return (
         <div style={{ padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'rgba(140,155,175,1)' }}>
                 No score data available for this entry.
@@ -442,7 +442,7 @@ export function ThreatScorePanel({ entryType, entryId }) {
             )}
 
             {/* ── Risk indicators ── */}
-            {risk_indicators.length > 0 && (
+            {!hideRiskIndicators && risk_indicators.length > 0 && (
                 <div>
                     <div style={{
                         fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fontWeight: 700,
@@ -494,7 +494,7 @@ export function ThreatScorePanel({ entryType, entryId }) {
             )}
 
             {/* ── Score breakdown ── */}
-            {breakdown.length > 0 && (
+            {!hideBreakdown && breakdown.length > 0 && (
                 <div>
                     <div style={{
                         fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fontWeight: 700,

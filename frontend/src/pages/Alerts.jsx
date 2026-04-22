@@ -193,8 +193,8 @@ function AlertDetail({ alert }) {
 
     const tabs = [
         { key: 'chain', label: 'Attack Chain', count: chain.length },
+        { key: 'intel', label: 'Intel', count: (alert.enrich_indicators || []).length },
         { key: 'details', label: 'Details' },
-        { key: 'risk', label: 'Risk Flags' },
     ]
 
     return (
@@ -350,27 +350,106 @@ function AlertDetail({ alert }) {
                     </div>
                 )}
 
-                {tab === 'risk' && (
-                    <div style={{ maxWidth: 500 }}>
-                        {(alert.risk_indicators || alert.enrichment?.risk_indicators || []).length === 0 ? (
+                {tab === 'intel' && (
+                    <div style={{ maxWidth: 560 }}>
+                        {/* Quick intel summary */}
+                        <div style={{
+                            padding: '12px 14px',
+                            borderRadius: 10,
+                            background: 'rgba(15,19,32,.9)',
+                            border: '1px solid rgba(255,255,255,.07)',
+                            marginBottom: 12,
+                        }}>
+                            <div style={{
+                                fontFamily: 'IBM Plex Mono',
+                                fontSize: 9,
+                                fontWeight: 700,
+                                letterSpacing: '0.14em',
+                                textTransform: 'uppercase',
+                                color: 'var(--text-muted)',
+                                marginBottom: 10,
+                            }}>
+                                Enrichment Snapshot
+                            </div>
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 1fr',
+                                gap: 10,
+                                fontFamily: 'IBM Plex Mono',
+                                fontSize: 11,
+                                color: 'var(--text-secondary)',
+                            }}>
+                                <div>
+                                    <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 3 }}>VirusTotal</div>
+                                    <div style={{ color: (alert.vt_malicious || 0) > 0 ? 'var(--red)' : 'var(--green)' }}>
+                                        {(alert.vt_total || 0) > 0 ? `${alert.vt_malicious || 0}/${alert.vt_total || 0} detections` : '—'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 3 }}>Verdict</div>
+                                    <div style={{
+                                        color:
+                                            alert.overall_verdict === 'malicious' ? 'var(--red)' :
+                                                alert.overall_verdict === 'suspicious' ? 'var(--yellow)' :
+                                                    alert.overall_verdict === 'clean' ? 'var(--green)' :
+                                                        'var(--text-secondary)',
+                                    }}>
+                                        {(alert.overall_verdict || 'unknown').toUpperCase()}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 3 }}>Signed</div>
+                                    <div style={{ color: alert.pe_signed ? 'var(--green)' : 'var(--red)' }}>
+                                        {alert.pe_signed == null ? '—' : (alert.pe_signed ? 'Yes' : 'No')}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 3 }}>Compile Time</div>
+                                    <div style={{ color: alert.pe_compile_suspicious ? 'var(--red)' : 'var(--text-secondary)' }}>
+                                        {alert.pe_compile_suspicious ? 'Suspicious' : 'Normal/Unknown'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Unified risk indicators (from alerts API: enrich_indicators) */}
+                        {(alert.enrich_indicators || []).length === 0 ? (
                             <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)', fontFamily: 'IBM Plex Mono', fontSize: 12 }}>
-                                No risk flags — run enrichment first
+                                No enrichment risk indicators for this entry.
                             </div>
                         ) : (
-                            (alert.risk_indicators || alert.enrichment?.risk_indicators || []).map((ind, i) => (
-                                <div key={i} style={{
-                                    padding: 14, marginBottom: 8, borderRadius: 6,
-                                    background: 'var(--bg-raised)',
-                                    borderLeft: `3px solid ${ind.severity === 'critical' ? 'var(--red)' : ind.severity === 'high' ? 'var(--orange)' : 'var(--yellow)'}`,
-                                    border: '1px solid var(--bg-border)',
-                                }}>
-                                    <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--red)', marginBottom: 4 }}>
-                                        {ind.type?.replace(/_/g, ' ')}
+                            (alert.enrich_indicators || []).map((ind, i) => {
+                                const sevColor = ind.severity === 'critical' ? 'var(--red)' : ind.severity === 'high' ? 'var(--orange)' : 'var(--yellow)'
+                                return (
+                                    <div key={i} style={{
+                                        padding: '12px 14px', marginBottom: 8, borderRadius: 9,
+                                        background: 'rgba(15,19,32,.9)',
+                                        borderLeft: `3px solid ${sevColor}`,
+                                        border: '1px solid rgba(255,255,255,.07)',
+                                        opacity: 0, transform: 'translateX(-8px)',
+                                        animation: `nip-in .28s cubic-bezier(.16,1,.3,1) ${i * 0.05}s forwards`,
+                                    }}>
+                                        <div style={{
+                                            fontFamily: 'IBM Plex Mono',
+                                            fontSize: 9,
+                                            fontWeight: 700,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.12em',
+                                            color: sevColor,
+                                            marginBottom: 5,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 7,
+                                        }}>
+                                            <div style={{ width: 4, height: 4, borderRadius: '50%', background: sevColor, boxShadow: `0 0 6px ${sevColor}` }} />
+                                            {ind.type?.replace(/_/g, ' ') || 'risk'}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: 'rgba(140,155,175,1)', lineHeight: 1.55 }}>{ind.description}</div>
                                     </div>
-                                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{ind.description}</div>
-                                </div>
-                            ))
+                                )
+                            })
                         )}
+                        <style>{`@keyframes nip-in{to{opacity:1;transform:translateX(0)}}`}</style>
                     </div>
                 )}
             </div>

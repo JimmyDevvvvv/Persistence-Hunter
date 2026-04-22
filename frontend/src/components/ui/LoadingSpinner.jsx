@@ -1,6 +1,4 @@
 // src/components/ui/LoadingSpinner.jsx
-import { useEffect, useRef } from 'react'
-
 export function LoadingSpinner({ size = 'md' }) {
     const dims = { sm: 16, md: 24, lg: 36 }
     const strokes = { sm: 2, md: 2, lg: 3 }

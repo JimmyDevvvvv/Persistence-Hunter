@@ -246,6 +246,41 @@ def _static_assess(path: str, cmd: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Process node enrichment helper
+# ---------------------------------------------------------------------------
+
+def _enrich_process_node(node: dict) -> dict:
+    """
+    Enrich a process node dict (from sysmon_process_events) with:
+      - hashes: parsed dict  {"SHA256": "...", "MD5": "..."}
+      - integrity_level: passed through as-is
+      - image_path: normalised lowercase process_path
+    Safe to call on any node; silently skips missing fields.
+    """
+    # --- parse hashes string "MD5=abc,SHA256=def" -> dict ---
+    raw_hashes = node.pop("hashes", None)
+    if raw_hashes:
+        hashes_dict = {}
+        for part in str(raw_hashes).split(","):
+            part = part.strip()
+            if "=" in part:
+                algo, val = part.split("=", 1)
+                hashes_dict[algo.upper()] = val.lower()
+        if hashes_dict:
+            node["hashes"] = hashes_dict
+
+    # --- integrity_level: already a plain string, just keep it ---
+    # (nothing to transform; it's already in the dict from the SELECT)
+
+    # --- image_path: normalised process_path ---
+    raw_path = node.get("process_path") or ""
+    if raw_path:
+        node["image_path"] = os.path.normpath(raw_path).lower()
+
+    return node
+
+
+# ---------------------------------------------------------------------------
 # Base collector — DB + event ingestion + chain building
 # ---------------------------------------------------------------------------
 
@@ -685,7 +720,8 @@ class BaseCollector:
 
         row = self.conn.execute("""
             SELECT pid, parent_pid, process_name, process_path,
-                   command_line, user_name, event_time
+                   command_line, user_name, event_time,
+                   hashes, integrity_level
             FROM sysmon_process_events
             WHERE pid = ? AND event_time <= ?
             ORDER BY event_time DESC LIMIT 1
@@ -694,6 +730,7 @@ class BaseCollector:
         if row:
             best_match = dict(row)
             best_match["_source_table"] = "sysmon"
+            best_match = _enrich_process_node(best_match)
             best_time  = row["event_time"]
 
         row = self.conn.execute("""
@@ -717,7 +754,8 @@ class BaseCollector:
 
         row = self.conn.execute("""
             SELECT pid, parent_pid, process_name, process_path,
-                   command_line, user_name, event_time
+                   command_line, user_name, event_time,
+                   hashes, integrity_level
             FROM sysmon_process_events
             WHERE pid = ? AND event_time <= ?
             ORDER BY event_time DESC LIMIT 1
@@ -726,6 +764,7 @@ class BaseCollector:
         if row:
             result = dict(row)
             result["_source_table"] = "sysmon"
+            result = _enrich_process_node(result)
             return result
 
         row = self.conn.execute("""

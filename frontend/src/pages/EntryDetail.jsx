@@ -2,10 +2,10 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { AnimatePresence, motion } from 'framer-motion'
 import { fetchEntry, fetchChain, triggerEnrichment } from '../api/client'
 import { ProcessTree } from '../components/features/ProcessTree'
-import { EnrichmentPanel } from '../components/features/EnrichmentPanel'
-import { ThreatScorePanel } from '../components/features/Threatscore'
+import { IntelPanel } from '../components/features/IntelPanel'
 
 const SEV_SCORE = { critical: 95, high: 88, medium: 45, low: 15 }
 
@@ -100,6 +100,7 @@ export function EntryDetail() {
     const navigate = useNavigate()
     const [tab, setTab] = useState('chain')
     const [enriching, setEnriching] = useState(false)
+    const MotionDiv = motion.div
 
     const { data: entry, isLoading, refetch: refetchEntry } = useQuery({
         queryKey: ['entry', type, id],
@@ -141,7 +142,7 @@ export function EntryDetail() {
     const score = SEV_SCORE[entry.severity] ?? 0
     const chain = chainData?.chain || []
     const chainLine = chain.length > 0 ? chain.map(n => n.name).join(' → ') : ''
-    const riskCount = entry.enrichment?.risk_indicators?.length || 0
+    const riskCount = (entry.enrichment?.risk_indicators?.length || 0)
 
     // Anomalies
     const anomalies = []
@@ -156,15 +157,12 @@ export function EntryDetail() {
 
     const tabs = [
         { key: 'chain', label: 'Attack Chain', count: chain.length },
+        { key: 'intel', label: 'Intel', count: riskCount },
         { key: 'details', label: 'Details' },
-        { key: 'enrich', label: 'Enrichment' },
-        { key: 'threat', label: 'Threat Intel' },
-        { key: 'risk', label: 'Risk Flags', count: riskCount },
     ]
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', animationName: 'slideUp', animationDuration: '0.25s', animationTimingFunction: 'ease-out' }}>
-
             {/* ── Header ── */}
             <div style={{ padding: '12px 20px 10px', borderBottom: '1px solid var(--bg-border)', flexShrink: 0 }}>
 
@@ -318,84 +316,59 @@ export function EntryDetail() {
 
             {/* ── Tab content ── */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-
-                {tab === 'chain' && (
-                    <ProcessTree chain={chain} loading={chainLoading} error={chainError} />
-                )}
-
-                {tab === 'details' && (
-                    <div style={{ maxWidth: 640 }}>
-                        <div style={{
-                            background: 'var(--bg-surface)', border: '1px solid var(--bg-border)',
-                            borderRadius: 8, overflow: 'hidden',
-                        }}>
-                            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--bg-border)', background: 'rgba(255,255,255,0.02)' }}>
-                                <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-                                    Entry Details
-                                </span>
-                            </div>
-                            <div style={{ padding: '4px 16px 8px' }}>
-                                {[
-                                    ['Name', name, true],
-                                    ['Value / Path', value, true],
-                                    ['Hive', entry.hive, true],
-                                    ['Reg Path', entry.reg_path, true],
-                                    ['Run As', entry.run_as, false],
-                                    ['Start Type', entry.start_type, false],
-                                    ['Trigger', entry.trigger_type, false],
-                                    ['IOC Notes', entry.ioc_notes, false],
-                                    ['First Seen', entry.first_seen?.slice(0, 19), false],
-                                    ['Last Seen', entry.last_seen?.slice(0, 19), false],
-                                    ['Entry ID', `${type}/${id}`, true],
-                                ].map(([label, val, mono]) => val ? (
-                                    <div key={label} style={{ display: 'flex', gap: 16, padding: '8px 0', borderBottom: '1px solid var(--bg-border)' }}>
-                                        <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 10.5, color: 'var(--text-muted)', width: 90, flexShrink: 0 }}>{label}</span>
-                                        <span style={{ fontFamily: mono ? 'IBM Plex Mono' : 'Inter', fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{val}</span>
-                                    </div>
-                                ) : null)}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {tab === 'enrich' && (
-                    <EnrichmentPanel enrichment={entry.enrichment} />
-                )}
-
-                {tab === 'threat' && (
-                    <div style={{ display: 'flex', justifyContent: 'center' }}>
-                        <ThreatScorePanel entryType={type} entryId={id} />
-                    </div>
-                )}
-
-                {tab === 'risk' && (
-                    <div style={{ maxWidth: 560 }}>
-                        {(entry.enrichment?.risk_indicators || []).length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '60px 0', fontFamily: 'IBM Plex Mono', fontSize: 12, color: 'var(--text-muted)' }}>
-                                <div style={{ fontSize: 28, opacity: 0.15, marginBottom: 12 }}>⚡</div>
-                                <div>No risk indicators</div>
-                                <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>Run enrichment first</div>
-                            </div>
-                        ) : (
-                            (entry.enrichment?.risk_indicators || []).map((ind, i) => {
-                                const sevColor = ind.severity === 'critical' ? 'var(--red)' : ind.severity === 'high' ? 'var(--orange)' : 'var(--yellow)'
-                                return (
-                                    <div key={i} style={{
-                                        padding: '12px 14px', marginBottom: 8, borderRadius: 6,
-                                        background: 'var(--bg-raised)',
-                                        borderLeft: `3px solid ${sevColor}`,
-                                        border: '1px solid var(--bg-border)',
-                                    }}>
-                                        <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: sevColor, marginBottom: 4 }}>
-                                            {ind.type?.replace(/_/g, ' ')}
-                                        </div>
-                                        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{ind.description}</div>
-                                    </div>
-                                )
-                            })
+                <AnimatePresence mode="wait">
+                    <MotionDiv
+                        key={tab}
+                        initial={{ opacity: 0, y: 10, filter: 'blur(2px)' }}
+                        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                        exit={{ opacity: 0, y: -8, filter: 'blur(2px)' }}
+                        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                    >
+                        {tab === 'chain' && (
+                            <ProcessTree chain={chain} loading={chainLoading} error={chainError} />
                         )}
-                    </div>
-                )}
+
+                        {tab === 'intel' && (
+                            <IntelPanel entryType={type} entryId={id} enrichment={entry.enrichment} />
+                        )}
+
+                        {tab === 'details' && (
+                            <div style={{ maxWidth: 640 }}>
+                                <div style={{
+                                    background: 'var(--bg-surface)', border: '1px solid var(--bg-border)',
+                                    borderRadius: 8, overflow: 'hidden',
+                                }}>
+                                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--bg-border)', background: 'rgba(255,255,255,0.02)' }}>
+                                        <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                                            Entry Details
+                                        </span>
+                                    </div>
+                                    <div style={{ padding: '4px 16px 8px' }}>
+                                        {[
+                                            ['Name', name, true],
+                                            ['Value / Path', value, true],
+                                            ['Hive', entry.hive, true],
+                                            ['Reg Path', entry.reg_path, true],
+                                            ['Run As', entry.run_as, false],
+                                            ['Start Type', entry.start_type, false],
+                                            ['Trigger', entry.trigger_type, false],
+                                            ['IOC Notes', entry.ioc_notes, false],
+                                            ['First Seen', entry.first_seen?.slice(0, 19), false],
+                                            ['Last Seen', entry.last_seen?.slice(0, 19), false],
+                                            ['Entry ID', `${type}/${id}`, true],
+                                        ].map(([label, val, mono]) => val ? (
+                                            <div key={label} style={{ display: 'flex', gap: 16, padding: '8px 0', borderBottom: '1px solid var(--bg-border)' }}>
+                                                <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 10.5, color: 'var(--text-muted)', width: 90, flexShrink: 0 }}>{label}</span>
+                                                <span style={{ fontFamily: mono ? 'IBM Plex Mono' : 'Inter', fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{val}</span>
+                                            </div>
+                                        ) : null)}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </MotionDiv>
+                </AnimatePresence>
+
             </div>
         </div>
     )
