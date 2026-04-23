@@ -434,8 +434,51 @@ class ServiceCollector(BaseCollector):
 
         return {
             "writer_source":  "unknown",
-            "unknown_reason": "No 7045 event or matching process found",
+            "unknown_reason": self._diagnose_service_unknown(entry),
         }
+
+    def _diagnose_service_unknown(self, entry: dict) -> str:
+        """Explain why no chain could be built for this service."""
+        first_seen = entry.get("first_seen")
+        if first_seen:
+            try:
+                fs     = datetime.fromisoformat(first_seen)
+                cutoff = datetime.utcnow() - timedelta(hours=self.collection_hours)
+                if fs < cutoff:
+                    age_hours = int((datetime.utcnow() - fs).total_seconds() / 3600)
+                    return (
+                        f"Pre-monitoring install (~{age_hours}h old) — "
+                        f"outside the {self.collection_hours}h window. "
+                        "Re-run with --hours to extend coverage."
+                    )
+            except Exception:
+                pass
+
+        ev7045 = 0
+        try:
+            ev7045 = self.conn.execute(
+                "SELECT COUNT(*) FROM service_creation_events"
+            ).fetchone()[0]
+        except Exception:
+            pass
+
+        if ev7045 == 0:
+            return (
+                "No System Event 7045 (service installed) in DB — "
+                "check that System event log is accessible"
+            )
+
+        sysmon = self.conn.execute(
+            "SELECT COUNT(*) FROM sysmon_process_events"
+        ).fetchone()[0]
+        if sysmon == 0:
+            return "No Sysmon process events in DB — install Sysmon or check config"
+
+        return (
+            "7045 event found but no matching installer process — "
+            "service may have been installed by a kernel-mode driver or "
+            "before Sysmon was running"
+        )
 
     def _nodes_to_display(self, nodes: list[dict]) -> list[dict]:
         display = []

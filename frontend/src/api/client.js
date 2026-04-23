@@ -10,30 +10,30 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 const api = axios.create({ baseURL: BASE, timeout: 30000 })
 
-// ── Stats ────────────────────────────────────────────────────────────────────
+// ── Stats ─────────────────────────────────────────────────────────────────────
 export const fetchHealth = () => api.get('/api/health').then(r => r.data)
 export const fetchStats = () => api.get('/api/stats').then(r => r.data)
 
-// ── Entries ──────────────────────────────────────────────────────────────────
+// ── Entries ───────────────────────────────────────────────────────────────────
 export const fetchEntries = (params = {}) =>
     api.get('/api/entries', { params }).then(r => r.data)
 
 export const fetchEntry = (type, id) =>
     api.get(`/api/entries/${type}/${id}`).then(r => r.data)
 
-// ── Alerts ───────────────────────────────────────────────────────────────────
+// ── Alerts ────────────────────────────────────────────────────────────────────
 export const fetchAlerts = (limit = 200) =>
     api.get('/api/alerts', { params: { limit } }).then(r => r.data)
 
-// ── Chains ───────────────────────────────────────────────────────────────────
+// ── Chains ────────────────────────────────────────────────────────────────────
 export const fetchChain = (type, id, rebuild = false) =>
     api.get(`/api/chains/${type}/${id}`, { params: { rebuild } }).then(r => r.data)
 
-// ── Search ───────────────────────────────────────────────────────────────────
+// ── Search ────────────────────────────────────────────────────────────────────
 export const search = (q, entry_type = 'all', limit = 100) =>
     api.get('/api/search', { params: { q, entry_type, limit } }).then(r => r.data)
 
-// ── Scan ─────────────────────────────────────────────────────────────────────
+// ── Scan ──────────────────────────────────────────────────────────────────────
 export const triggerScan = (payload) =>
     api.post('/api/scan', payload).then(r => r.data)
 
@@ -41,26 +41,63 @@ export const fetchScanStatus = (jobId) =>
     api.get('/api/scan/status', { params: jobId ? { job_id: jobId } : {} })
         .then(r => r.data)
 
-// ── Baseline ─────────────────────────────────────────────────────────────────
+// ── Baseline ──────────────────────────────────────────────────────────────────
 export const fetchBaselines = () => api.get('/api/baseline').then(r => r.data)
 export const createBaseline = (payload) => api.post('/api/baseline', payload).then(r => r.data)
 export const fetchDiff = (params) => api.get('/api/baseline/diff', { params }).then(r => r.data)
 export const deleteBaseline = (id) => api.delete(`/api/baseline/${id}`).then(r => r.data)
 
-// ── Enrichment ───────────────────────────────────────────────────────────────
-export const fetchEnrichment = (type, id) =>
-    api.get(`/api/enrich/${type}/${id}`).then(r => r.data)
+// ── Enrichment ────────────────────────────────────────────────────────────────
+export const fetchEnrichment = (type, id) => api.get(`/api/enrich/${type}/${id}`).then(r => r.data)
+export const triggerEnrichment = (type, id) => api.post(`/api/enrich/${type}/${id}`).then(r => r.data)
 
-export const triggerEnrichment = (type, id) =>
-    api.post(`/api/enrich/${type}/${id}`).then(r => r.data)
+// ── Export ────────────────────────────────────────────────────────────────────
+export const exportMitre = () => api.get('/api/export/mitre').then(r => r.data)
 
-// ── Export ───────────────────────────────────────────────────────────────────
-export const exportMitre = () =>
-    api.get('/api/export/mitre').then(r => r.data)
+// ── Scores ────────────────────────────────────────────────────────────────────
 
-// ── Scores ───────────────────────────────────────────────────────────────────
+// Single entry — used in detail panels for breakdown + APT data
 export const fetchScore = (type, id) =>
     api.get(`/api/scores/${type}/${id}`).then(r => r.data)
 
+// All scores in one request — returns a Map keyed "type/id" for O(1) lookups
+// e.g. scoresMap.get("registry/3") -> { score: 40, ... }
+export const fetchAllScores = () =>
+    api.get('/api/scores').then(r => {
+        const map = new Map()
+        for (const s of (r.data?.scores || [])) {
+            map.set(`${s.entry_type}/${s.entry_id}`, s)
+        }
+        return map
+    })
+
 export const triggerScores = () =>
     api.post('/api/scores/run').then(r => r.data)
+
+// ── Score helpers (single source of truth for UI classification) ──────────────
+
+/**
+ * Convert a numeric threat score to a severity tier.
+ * This replaces the collector's static severity field everywhere in the UI.
+ */
+export function scoreToSeverity(score) {
+    if (score == null) return null
+    if (score >= 80) return 'critical'
+    if (score >= 60) return 'high'
+    if (score >= 35) return 'medium'
+    return 'low'
+}
+
+export const SCORE_LABEL = {
+    critical: 'CRITICAL',
+    high: 'HIGH',
+    medium: 'SUSPICIOUS',
+    low: 'LOW RISK',
+}
+
+export const SCORE_COLOR = {
+    critical: '#ff2055',
+    high: '#ff7722',
+    medium: '#ffd60a',
+    low: '#00e676',
+}

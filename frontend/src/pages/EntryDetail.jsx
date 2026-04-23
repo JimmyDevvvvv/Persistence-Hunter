@@ -3,11 +3,9 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { fetchEntry, fetchChain, triggerEnrichment } from '../api/client'
+import { fetchEntry, fetchChain, triggerEnrichment, fetchScore } from '../api/client'
 import { ProcessTree } from '../components/features/ProcessTree'
 import { IntelPanel } from '../components/features/IntelPanel'
-
-const SEV_SCORE = { critical: 95, high: 88, medium: 45, low: 15 }
 
 const TYPE_BADGE = {
     registry: { label: 'Registry', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)', border: 'rgba(59,130,246,0.35)' },
@@ -42,7 +40,7 @@ function ScoreBox({ score, severity }) {
             fontFamily: 'IBM Plex Mono', fontSize: 13, fontWeight: 700,
             color: c.color,
         }}>
-            {score}
+            {score == null ? '—' : score}
         </div>
     )
 }
@@ -107,6 +105,12 @@ export function EntryDetail() {
         queryFn: () => fetchEntry(type, id),
     })
 
+    const { data: scoreData } = useQuery({
+        queryKey: ['score', type, id],
+        queryFn: () => fetchScore(type, id),
+        enabled: !!entry,
+    })
+
     const { data: chainData, isLoading: chainLoading, error: chainError } = useQuery({
         queryKey: ['chain', type, id],
         queryFn: () => fetchChain(type, id),
@@ -139,7 +143,7 @@ export function EntryDetail() {
     const name = entry.name || entry.task_name || entry.service_name || '?'
     const value = entry.value_data || entry.command || entry.binary_path || ''
     const techniques = entry.techniques || []
-    const score = SEV_SCORE[entry.severity] ?? 0
+    const score = scoreData?.score ?? null
     const chain = chainData?.chain || []
     const chainLine = chain.length > 0 ? chain.map(n => n.name).join(' → ') : ''
     const riskCount = (entry.enrichment?.risk_indicators?.length || 0)

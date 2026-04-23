@@ -13,11 +13,11 @@ function normalizeIndicator(ind, source) {
   return { key, type, description, severity, source, raw: ind }
 }
 
+// Score indicators rank higher than enrichment ones at the same severity
+const SOURCE_WEIGHT = { score: 1, enrich: 0 }
+
 function sevRank(sev) {
-  if (sev === 'critical') return 3
-  if (sev === 'high') return 2
-  if (sev === 'medium') return 1
-  return 0
+  return { critical: 3, high: 2, medium: 1, low: 0 }[sev] ?? 0
 }
 
 function RiskCard({ ind, i }) {
@@ -40,11 +40,8 @@ function RiskCard({ ind, i }) {
       }}
     >
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 10,
-        marginBottom: 4,
+        display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', gap: 10, marginBottom: 4,
       }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 7, minWidth: 0,
@@ -64,12 +61,10 @@ function RiskCard({ ind, i }) {
         <span style={{
           flexShrink: 0,
           fontFamily: "'JetBrains Mono',monospace",
-          fontSize: 8,
-          padding: '1px 6px',
-          borderRadius: 3,
+          fontSize: 8, padding: '1px 6px', borderRadius: 3,
           border: '1px solid rgba(255,255,255,.08)',
-          color: 'rgba(106,117,144,.9)',
-          background: 'rgba(255,255,255,.03)',
+          color: ind.source === 'score' ? 'rgba(0,229,255,.7)' : 'rgba(106,117,144,.9)',
+          background: ind.source === 'score' ? 'rgba(0,229,255,.06)' : 'rgba(255,255,255,.03)',
         }}>
           {ind.source}
         </span>
@@ -81,26 +76,57 @@ function RiskCard({ ind, i }) {
   )
 }
 
+function ScoreErrorBanner() {
+  return (
+    <div style={{
+      padding: '8px 12px', borderRadius: 7,
+      background: 'rgba(255,32,85,.07)',
+      border: '1px solid rgba(255,32,85,.2)',
+      fontFamily: "'JetBrains Mono',monospace",
+      fontSize: 9, color: 'rgba(255,32,85,.8)',
+      display: 'flex', alignItems: 'center', gap: 7,
+    }}>
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+      Threat score unavailable — scoring may not have run yet
+    </div>
+  )
+}
+
 export function IntelPanel({ entryType, entryId, enrichment }) {
   const MotionDiv = motion.div
 
-  const { data: scoreData } = useQuery({
-    queryKey: ['score', entryType, entryId, 'lite'],
+  const {
+    data: scoreData,
+    isError: scoreError,
+  } = useQuery({
+    queryKey: ['score', entryType, entryId],
     queryFn: () => fetchScore(entryType, entryId),
     enabled: !!entryType && !!entryId,
+    retry: 1,
   })
 
   const mergedIndicators = useMemo(() => {
-    const enrich = (enrichment?.risk_indicators || []).map(i => normalizeIndicator(i, 'enrich'))
-    const score = (scoreData?.risk_indicators || []).map(i => normalizeIndicator(i, 'score'))
+    // Score indicators are the primary signal; enrichment is supplementary
+    const scoreInds = (scoreData?.risk_indicators || []).map(i => normalizeIndicator(i, 'score'))
+    const enrichInds = (enrichment?.risk_indicators || []).map(i => normalizeIndicator(i, 'enrich'))
+
     const map = new Map()
-    for (const ind of [...enrich, ...score]) {
+    // Add enrichment first so score entries overwrite on key collision
+    for (const ind of [...enrichInds, ...scoreInds]) {
       if (!ind.key || ind.key === '::') continue
-      if (!map.has(ind.key)) map.set(ind.key, ind)
+      map.set(ind.key, ind)
     }
-    const out = [...map.values()]
-    out.sort((a, b) => sevRank(b.severity) - sevRank(a.severity))
-    return out
+
+    return [...map.values()].sort((a, b) => {
+      const sevDiff = sevRank(b.severity) - sevRank(a.severity)
+      if (sevDiff !== 0) return sevDiff
+      return (SOURCE_WEIGHT[b.source] ?? 0) - (SOURCE_WEIGHT[a.source] ?? 0)
+    })
   }, [enrichment, scoreData])
 
   return (
@@ -117,97 +143,89 @@ export function IntelPanel({ entryType, entryId, enrichment }) {
         }
       `}</style>
       <div className="rh-intel-grid">
-      {/* Left: enrichment (hashes/file intel/intel verdict) */}
-      <MotionDiv
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-        style={{ minWidth: 0 }}
-      >
-        <EnrichmentPanel enrichment={enrichment} hideRisk />
-      </MotionDiv>
 
-      {/* Right: unified risk feed + threat score */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
-        <div>
-          <div style={{
-            fontFamily: "'JetBrains Mono',monospace",
-            fontSize: 8, fontWeight: 700,
-            letterSpacing: '.18em', textTransform: 'uppercase',
-            color: 'rgba(53,64,96,1)',
-            marginBottom: 8,
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            Risk & Intel Signals
-            <span style={{
-              fontFamily: "'JetBrains Mono',monospace",
-              fontSize: 8,
-              padding: '1px 6px',
-              borderRadius: 3,
-              background: 'rgba(255,32,85,.1)',
-              color: '#ff2055',
-              border: '1px solid rgba(255,32,85,.25)',
-            }}>
-              {mergedIndicators.length}
-            </span>
-          </div>
-
-          <AnimatePresence initial={false}>
-            {mergedIndicators.length === 0 ? (
-              <MotionDiv
-                key="empty"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                style={{
-                  padding: '18px 14px',
-                  borderRadius: 10,
-                  background: 'rgba(15,19,32,.9)',
-                  border: '1px solid rgba(255,255,255,.07)',
-                  color: 'rgba(90,107,138,1)',
-                  fontFamily: "'JetBrains Mono',monospace",
-                  fontSize: 10,
-                  textAlign: 'center',
-                }}
-              >
-                No signals yet — run enrichment and scoring.
-              </MotionDiv>
-            ) : (
-              <MotionDiv
-                key="list"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
-              >
-                {mergedIndicators.slice(0, 10).map((ind, i) => (
-                  <RiskCard key={ind.key} ind={ind} i={i} />
-                ))}
-                {mergedIndicators.length > 10 && (
-                  <div style={{
-                    fontFamily: "'JetBrains Mono',monospace",
-                    fontSize: 9,
-                    color: 'rgba(106,117,144,.8)',
-                    paddingLeft: 4,
-                  }}>
-                    Showing top 10 · {mergedIndicators.length - 10} more signals
-                  </div>
-                )}
-              </MotionDiv>
-            )}
-          </AnimatePresence>
-        </div>
-
+        {/* Left: enrichment — file intel, hashes, VT verdict */}
         <MotionDiv
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1], delay: 0.06 }}
+          transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+          style={{ minWidth: 0 }}
         >
-          <ThreatScorePanel entryType={entryType} entryId={entryId} hideRiskIndicators />
+          <EnrichmentPanel enrichment={enrichment} hideRisk />
         </MotionDiv>
-      </div>
+
+        {/* Right: unified risk feed (score-first) + threat score widget */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+
+          {scoreError && <ScoreErrorBanner />}
+
+          <div>
+            <div style={{
+              fontFamily: "'JetBrains Mono',monospace",
+              fontSize: 8, fontWeight: 700,
+              letterSpacing: '.18em', textTransform: 'uppercase',
+              color: 'rgba(53,64,96,1)',
+              marginBottom: 8,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              Risk & Intel Signals
+              <span style={{
+                fontFamily: "'JetBrains Mono',monospace", fontSize: 8,
+                padding: '1px 6px', borderRadius: 3,
+                background: 'rgba(255,32,85,.1)', color: '#ff2055',
+                border: '1px solid rgba(255,32,85,.25)',
+              }}>
+                {mergedIndicators.length}
+              </span>
+            </div>
+
+            <AnimatePresence initial={false}>
+              {mergedIndicators.length === 0 ? (
+                <MotionDiv
+                  key="empty"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  style={{
+                    padding: '18px 14px', borderRadius: 10,
+                    background: 'rgba(15,19,32,.9)',
+                    border: '1px solid rgba(255,255,255,.07)',
+                    color: 'rgba(90,107,138,1)',
+                    fontFamily: "'JetBrains Mono',monospace",
+                    fontSize: 10, textAlign: 'center',
+                  }}
+                >
+                  No signals yet — run enrichment and scoring.
+                </MotionDiv>
+              ) : (
+                <MotionDiv
+                  key="list"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {mergedIndicators.slice(0, 10).map((ind, i) => (
+                    <RiskCard key={ind.key} ind={ind} i={i} />
+                  ))}
+                  {mergedIndicators.length > 10 && (
+                    <div style={{
+                      fontFamily: "'JetBrains Mono',monospace",
+                      fontSize: 9, color: 'rgba(106,117,144,.8)', paddingLeft: 4,
+                    }}>
+                      Showing top 10 · {mergedIndicators.length - 10} more signals
+                    </div>
+                  )}
+                </MotionDiv>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <MotionDiv
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1], delay: 0.06 }}
+          >
+            <ThreatScorePanel entryType={entryType} entryId={entryId} hideRiskIndicators />
+          </MotionDiv>
+        </div>
       </div>
     </>
   )
 }
-

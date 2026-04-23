@@ -279,28 +279,48 @@ class RegistryCollector(BaseCollector):
         }
 
     def _diagnose_unknown(self, entry: dict) -> str:
+        """
+        Return a human-readable reason why no chain could be built.
+        Distinguishes pre-monitoring installs from genuine log gaps.
+        """
         from base_collector import PYWIN32_AVAILABLE
         if not PYWIN32_AVAILABLE:
-            return "pywin32 not available"
+            return "pywin32 not available — event log correlation disabled"
+
         first_seen = entry.get("first_seen")
         if first_seen and first_seen != "unknown":
             try:
-                from datetime import datetime, timedelta
                 fs     = datetime.fromisoformat(first_seen)
                 cutoff = datetime.utcnow() - timedelta(hours=self.collection_hours)
                 if fs < cutoff:
-                    return ("Entry created before monitoring window "
-                            "(" + str(self.collection_hours) + "h)")
+                    age_hours = int((datetime.utcnow() - fs).total_seconds() / 3600)
+                    return (
+                        f"Pre-monitoring install (~{age_hours}h old) — "
+                        f"outside the {self.collection_hours}h window. "
+                        "Re-run with --hours to extend coverage."
+                    )
             except Exception:
                 pass
-        if entry.get("hive", "").startswith("HKLM"):
-            return "System hive entry"
-        sysmon_count = self.conn.execute(
+
+        sysmon_proc = self.conn.execute(
+            "SELECT COUNT(*) FROM sysmon_process_events"
+        ).fetchone()[0]
+        sysmon_reg = self.conn.execute(
             "SELECT COUNT(*) FROM sysmon_registry_events"
         ).fetchone()[0]
-        if sysmon_count == 0:
-            return "No Sysmon events in database"
-        return "No matching event log entry found"
+
+        if sysmon_proc == 0:
+            return "No Sysmon process events in DB — install Sysmon or check config"
+        if sysmon_reg == 0:
+            return "No Sysmon registry events (Event 13) — add registry monitoring to Sysmon config"
+
+        if entry.get("hive", "").startswith("HKLM"):
+            return "SYSTEM-hive entry — likely written by an elevated installer or service"
+
+        return (
+            "No matching process event found — process may have exited before "
+            "Sysmon captured it, or written by a kernel-mode component"
+        )
 
     # ------------------------------------------------------------------
     # Node display builder

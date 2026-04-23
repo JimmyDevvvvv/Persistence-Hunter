@@ -300,7 +300,9 @@ class BaseCollector:
         "taskhostw.exe", "sihost.exe", "runtimebroker.exe",
         "searchhost.exe", "startmenuexperiencehost.exe",
     }
-    # svchost.exe: stop walking upward past it (services.exe is its parent, not interesting)
+    # svchost.exe: stop walking upward past it by default.
+    # ServiceCollector overrides this to empty so it can trace
+    # chains that go through svchost (e.g. SCM-spawned installers).
     SVCHOST_BOUNDARY = {"svchost.exe"}
 
     SYSTEM_PIDS  = {0, 4}
@@ -718,14 +720,24 @@ class BaseCollector:
         best_match = None
         best_time  = None
 
+        # Lower bound: parent must have started no more than 2 hours before
+        # the child. This prevents a recycled PID (same PID, different process
+        # started days earlier) from being incorrectly attached as a parent.
+        try:
+            lower_bound = (
+                datetime.fromisoformat(before) - timedelta(hours=2)
+            ).isoformat()
+        except Exception:
+            lower_bound = "1970-01-01T00:00:00"
+
         row = self.conn.execute("""
             SELECT pid, parent_pid, process_name, process_path,
                    command_line, user_name, event_time,
                    hashes, integrity_level
             FROM sysmon_process_events
-            WHERE pid = ? AND event_time <= ?
+            WHERE pid = ? AND event_time <= ? AND event_time >= ?
             ORDER BY event_time DESC LIMIT 1
-        """, (parent_pid, before)).fetchone()
+        """, (parent_pid, before, lower_bound)).fetchone()
 
         if row:
             best_match = dict(row)
@@ -737,9 +749,9 @@ class BaseCollector:
             SELECT pid, parent_pid, process_name, process_path,
                    command_line, user_name, event_time
             FROM process_events
-            WHERE pid = ? AND event_time <= ?
+            WHERE pid = ? AND event_time <= ? AND event_time >= ?
             ORDER BY event_time DESC LIMIT 1
-        """, (parent_pid, before)).fetchone()
+        """, (parent_pid, before, lower_bound)).fetchone()
 
         if row:
             if best_time is None or row["event_time"] > best_time:

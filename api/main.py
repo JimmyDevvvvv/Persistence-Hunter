@@ -1,11 +1,13 @@
-
-
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.dependencies import DB_PATH
-from api.routes import stats, entries, chains, scan, alerts, baseline, enrichment, search, export
+from api.routes import (
+    stats, entries, chains, scan,
+    alerts, baseline, enrichment, search, export,
+)
+from api.routes.scores import router as scores_router
 
 
 # ---------------------------------------------------------------------------
@@ -63,5 +65,4 @@ app.include_router(baseline.router,   prefix="/api/baseline",  tags=["Baseline"]
 app.include_router(enrichment.router, prefix="/api/enrich",    tags=["Enrichment"])
 app.include_router(search.router,     prefix="/api/search",    tags=["Search"])
 app.include_router(export.router,     prefix="/api/export",    tags=["Export"])
-from .routes.scores import router as scores_router
-app.include_router(scores_router, prefix="/api")
+app.include_router(scores_router,     prefix="/api/scores",    tags=["Scores"])

@@ -59,7 +59,7 @@ def is_scan_running() -> bool:
     return (
         _current_job_id is not None and
         _scan_jobs.get(_current_job_id) is not None and
-        _scan_jobs[_current_job_id].status == "running"
+        _scan_jobs[_current_job_id].status in ("running", "scoring")
     )
 
 def create_job() -> ScanJob:
@@ -138,6 +138,17 @@ async def run_scan(job: ScanJob, request: ScanRequest):
                     request.vt_api_key or os.environ.get("VT_API_KEY")
                 ),
             )
+
+        # Always score after collection — keeps threat scores in sync
+        _update("Scoring threats...", 88)
+        try:
+            from threat_scorer import score_all
+            scored = score_all(db_path=DB_PATH, verbose=False)
+            summary["scored"] = scored
+        except Exception as exc:
+            # Non-fatal — scan results are still valid without scores
+            summary["scored"] = 0
+            print(f"[scan_worker] Scoring warning: {exc}")
 
         return summary
 

@@ -1,5 +1,6 @@
 // src/components/features/ScanButton.jsx
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { triggerScan, fetchScanStatus } from '../../api/client'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 
@@ -7,6 +8,7 @@ export function ScanButton({ onComplete, label = 'SCAN', hours = 24 }) {
     const [running, setRunning] = useState(false)
     const [progress, setProgress] = useState(0)
     const [stage, setStage] = useState('')
+    const queryClient = useQueryClient()
 
     async function handleScan() {
         if (running) return
@@ -25,7 +27,14 @@ export function ScanButton({ onComplete, label = 'SCAN', hours = 24 }) {
                 if (status.status === 'done' || status.status === 'error') {
                     clearInterval(interval)
                     setRunning(false)
-                    if (status.status === 'done') onComplete?.()
+                    if (status.status === 'done') {
+                        // Invalidate everything that depends on scan results
+                        await queryClient.invalidateQueries({ queryKey: ['scores-all'] })
+                        await queryClient.invalidateQueries({ queryKey: ['alerts'] })
+                        await queryClient.invalidateQueries({ queryKey: ['entries'] })
+                        await queryClient.invalidateQueries({ queryKey: ['stats'] })
+                        onComplete?.()
+                    }
                 }
             }, 1500)
         } catch {

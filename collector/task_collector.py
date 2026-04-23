@@ -28,6 +28,27 @@ except ImportError:
 # How many seconds either side of a task-created event to search for the creator process
 TASK_CORRELATION_WINDOW_SECS = 60
 
+# Task path prefixes that are Windows-provisioned at OS install time.
+# These are never malicious chain-build candidates — skip chain building for them.
+# COM handler tasks and System32-only binaries under these paths are pure noise.
+BUILTIN_TASK_PREFIXES = (
+    "\\microsoft\\windows\\",
+    "\\microsoft\\office\\",
+    "\\microsoft\\onecore\\",
+    "\\microsoft\\xblgamesave\\",
+)
+
+# If a task's command is one of these it cannot be correlated — skip chain building.
+UNCHAINABLE_COMMANDS = {"com handler", "multiple actions", "", None}
+
+# Binaries that are always System32/SysWOW64 — not suspicious on their own.
+# Only flag these HIGH if they have attack-grade flags in the arguments.
+SYSTEM32_LOLBINS_TASK = {
+    "rundll32.exe", "regsvr32.exe", "msiexec.exe",
+    "dsregcmd.exe", "usoclient.exe", "sc.exe",
+    "cleanmgr.exe", "defrag.exe", "sdbinst.exe",
+}
+
 
 class TaskCollector(BaseCollector):
 
@@ -268,6 +289,36 @@ class TaskCollector(BaseCollector):
             return False
 
     # ------------------------------------------------------------------
+    # Chain skip decision
+    # ------------------------------------------------------------------
+
+    def _should_skip_chain(self, entry: dict) -> str | None:
+        """
+        Return a skip reason string if chain building is pointless for this
+        task, or None if we should proceed normally.
+        """
+        task_name = (entry.get("task_name") or "").lower().replace("/", "\\")
+        # Ensure task_name starts with backslash for consistent prefix matching
+        if task_name and not task_name.startswith("\\"):
+            task_name = "\\" + task_name
+        command   = (entry.get("command")   or "").strip().lower()
+
+        # COM handler / multiple actions — no executable to correlate
+        if command in {c.lower() for c in UNCHAINABLE_COMMANDS if c}:
+            return "COM handler or multiple actions — no executable to correlate"
+
+        # Windows-provisioned built-in task paths
+        if any(task_name.startswith(p) for p in BUILTIN_TASK_PREFIXES):
+            # Still chain if command has attack-grade flags — could be tampered
+            attack_flags = ["-enc", "-nop", "bypass", "hidden",
+                            "http://", "https://", "iex(", "downloadstring"]
+            full_cmd = command + " " + (entry.get("arguments") or "").lower()
+            if not any(f in full_cmd for f in attack_flags):
+                return "Windows built-in task — pre-provisioned at OS install"
+
+        return None
+
+    # ------------------------------------------------------------------
     # Chain building (time-based correlation)
     # ------------------------------------------------------------------
 
@@ -278,6 +329,29 @@ class TaskCollector(BaseCollector):
         if not entry:
             return []
         entry = dict(entry)
+
+        # Check if chain building is pointless for this task
+        skip_reason = self._should_skip_chain(entry)
+        if skip_reason:
+            chain = [{
+                "pid":           None,
+                "name":          "Skipped",
+                "type":          "system",
+                "user":          entry.get("run_as", ""),
+                "path":          entry.get("command", ""),
+                "cmdline":       entry.get("command", ""),
+                "event_time":    entry.get("last_seen", ""),
+                "depth":         0,
+                "source":        "skipped",
+                "unknown_reason": skip_reason,
+                "techniques":    tag_task(entry["task_name"]),
+                "action": {
+                    "type":  "task",
+                    "label": "Created Task: " + entry["task_name"],
+                },
+            }]
+            self._save_chain("task", task_entry_id, chain)
+            return chain
 
         writer = self._find_task_writer(entry)
 
@@ -391,9 +465,27 @@ class TaskCollector(BaseCollector):
 
             # Removed: loose "any process in window" fallback — caused false attributions
 
-        # No 4698 event — try matching by task command in cmdline
+        # No 4698 event — try matching by task command tokens in process cmdline.
+        # Tokenize the full command so "cmd.exe /c nvm.exe" extracts "nvm.exe"
+        # rather than just "cmd.exe" which is in the skip list.
         cmd = entry.get("command", "")
-        if cmd:
+        args = entry.get("arguments", "")
+        full_cmd = (cmd + " " + args).strip()
+
+        # Extract all .exe tokens from the command, skip generic LOLBins
+        import re as _re
+        exe_tokens = _re.findall(r'[\w\-.]+\.exe', full_cmd, _re.IGNORECASE)
+        _generic = {"cmd.exe", "powershell.exe", "pwsh.exe", "rundll32.exe",
+                    "regsvr32.exe", "msiexec.exe", "wscript.exe", "cscript.exe"}
+        specific_tokens = [t.lower() for t in exe_tokens
+                           if t.lower() not in _generic]
+
+        # Also try the task name leaf as a search token
+        task_leaf = task_name.split("\\")[-1].lower()
+
+        search_tokens = specific_tokens or ([task_leaf] if task_leaf else [])
+
+        for token in search_tokens:
             proc_row = self.conn.execute("""
                 SELECT pid, parent_pid, process_name, process_path,
                        command_line, user_name, event_time
@@ -401,7 +493,17 @@ class TaskCollector(BaseCollector):
                 WHERE LOWER(command_line) LIKE ?
                   AND event_time <= ?
                 ORDER BY event_time DESC LIMIT 1
-            """, ("%" + os.path.basename(cmd).lower() + "%", last_seen)).fetchone()
+            """, ("%" + token + "%", last_seen)).fetchone()
+
+            if not proc_row:
+                proc_row = self.conn.execute("""
+                    SELECT pid, parent_pid, process_name, process_path,
+                           command_line, user_name, event_time
+                    FROM process_events
+                    WHERE LOWER(command_line) LIKE ?
+                      AND event_time <= ?
+                    ORDER BY event_time DESC LIMIT 1
+                """, ("%" + token + "%", last_seen)).fetchone()
 
             if proc_row:
                 result = dict(proc_row)
@@ -410,8 +512,52 @@ class TaskCollector(BaseCollector):
 
         return {
             "writer_source":  "unknown",
-            "unknown_reason": "No 4698 event or matching process found",
+            "unknown_reason": self._diagnose_task_unknown(entry),
         }
+
+    def _diagnose_task_unknown(self, entry: dict) -> str:
+        """Explain why no chain could be built for this task."""
+        first_seen = entry.get("first_seen")
+        if first_seen:
+            try:
+                fs     = datetime.fromisoformat(first_seen)
+                cutoff = datetime.utcnow() - timedelta(hours=self.collection_hours)
+                if fs < cutoff:
+                    age_hours = int((datetime.utcnow() - fs).total_seconds() / 3600)
+                    return (
+                        f"Pre-monitoring install (~{age_hours}h old) — "
+                        f"outside the {self.collection_hours}h window. "
+                        "Re-run with --hours, or enable Security audit policy: "
+                        "'auditpol /set /subcategory:\"Other Object Access Events\" /success:enable'"
+                    )
+            except Exception:
+                pass
+
+        ev4698 = 0
+        try:
+            ev4698 = self.conn.execute(
+                "SELECT COUNT(*) FROM task_creation_events"
+            ).fetchone()[0]
+        except Exception:
+            pass
+
+        if ev4698 == 0:
+            return (
+                "No Security Event 4698 (task created) in DB — "
+                "enable audit policy: "
+                "'auditpol /set /subcategory:\"Other Object Access Events\" /success:enable'"
+            )
+
+        sysmon = self.conn.execute(
+            "SELECT COUNT(*) FROM sysmon_process_events"
+        ).fetchone()[0]
+        if sysmon == 0:
+            return "No Sysmon process events in DB — install Sysmon or check config"
+
+        return (
+            "4698 event found but no matching process in window — "
+            "creator process may have exited before Sysmon captured it"
+        )
 
     def _nodes_to_display(self, nodes: list[dict]) -> list[dict]:
         """Convert raw process dicts to display nodes."""
@@ -543,6 +689,8 @@ if __name__ == "__main__":
                   row["task_name"] + " [" + sev_color + row["severity"].upper() +
                   Colors.RESET + Colors.BOLD + "] ---" + Colors.RESET)
             chain = col.build_attack_chain(row["id"])
+            if chain and chain[0].get("source") == "skipped":
+                continue  # silently skip built-in tasks
             if chain:
                 print()
                 for i, node in enumerate(chain):
