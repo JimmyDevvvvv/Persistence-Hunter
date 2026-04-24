@@ -11,6 +11,16 @@
       </ProcessCreate>
     </RuleGroup>
 
+    <!-- Event ID 11: FileCreate — task XML written to Tasks folder -->
+    <!-- Fires while the creator process is still alive — gives exact PID -->
+    <!-- with full parent chain, no 60-second race condition -->
+    <RuleGroup name="FileCreate" groupRelation="or">
+      <FileCreate onmatch="include">
+        <TargetFilename condition="contains">System32\Tasks</TargetFilename>
+        <TargetFilename condition="contains">SysWOW64\Tasks</TargetFilename>
+      </FileCreate>
+    </RuleGroup>
+
     <!-- Event ID 13: Registry writes — persistence keys -->
     <RuleGroup name="RegistryEvent" groupRelation="or">
       <RegistryEvent onmatch="include">

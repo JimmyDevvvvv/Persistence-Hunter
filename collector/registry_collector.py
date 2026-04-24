@@ -493,8 +493,17 @@ if __name__ == "__main__":
                         help="Build attack chain for entry ID")
     parser.add_argument("--chain-all", action="store_true",
                         help="Build chains for all High/Critical entries")
+    parser.add_argument("--baseline",   action="store_true",
+                        help="Snapshot current entries as new baseline")
+    parser.add_argument("--diff",       action="store_true",
+                        help="Only show entries NEW since last baseline")
+    parser.add_argument("--mark-safe",  type=str, metavar="HASH_ID",
+                        help="Mark entry hash as safe in active baseline")
+    parser.add_argument("--baselines",  action="store_true",
+                        help="List all saved baselines")
     parser.add_argument("--no-color",  action="store_true", help="Disable colored output")
     parser.add_argument("--no-cmdline",action="store_true", help="Hide command lines")
+    parser.add_argument("--json",      action="store_true", help="Export results to JSON file")
     parser.add_argument("--db",        default="reghunt.db", help="Database path")
     args = parser.parse_args()
 
@@ -505,16 +514,56 @@ if __name__ == "__main__":
 
     col = RegistryCollector(db_path=args.db, collection_hours=args.hours)
 
+    # ── Baseline management ──────────────────────────────────────────
+    if args.baselines:
+        bls = col.list_baselines()
+        if not bls:
+            print("[*] No baselines saved yet. Run --baseline after a scan.")
+        else:
+            print("[*] Saved baselines:")
+            for b in bls:
+                print("  [" + str(b["id"]) + "] " + b["name"] +
+                      " | " + b["created_at"][:19] +
+                      " | " + str(b["entry_count"]) + " entries" +
+                      (" | " + b["note"] if b["note"] else ""))
+
+    if args.mark_safe:
+        if col.mark_safe("registry", args.mark_safe):
+            print("[+] Marked hash " + args.mark_safe + " as safe in active baseline.")
+        else:
+            print("[!] Failed to mark safe — run --baseline first.")
+
     if args.scan:
         print("[*] Scanning registry persistence keys...")
         entries = col.collect_registry()
-        print("[+] Found " + str(len(entries)) + " entries")
+
+        if args.diff:
+            new_entries = col.get_new_entries("registry", "registry_entries")
+            new_hashes  = {e["hash_id"] for e in new_entries}
+            entries     = [e for e in entries if e["hash_id"] in new_hashes]
+            bl = col.get_active_baseline()
+            bl_date = bl["created_at"][:19] if bl else "never"
+            print("[+] Found " + str(len(entries)) +
+                  " NEW entries since baseline (" + bl_date + ")")
+            if not entries:
+                print("    ✅ No new persistence entries since last baseline.")
+        else:
+            print("[+] Found " + str(len(entries)) + " entries")
+
         for e in entries:
             icon      = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(e["severity"], "⚪")
             sev_color = {"critical": Colors.RED, "high": Colors.YELLOW,
                          "medium": Colors.WHITE, "low": Colors.GREEN}.get(e["severity"], Colors.RESET)
+            new_badge = Colors.CYAN + " [NEW]" + Colors.RESET if args.diff else ""
             print("  " + icon + " " + sev_color + "[" + e["severity"].upper() + "]" +
-                  Colors.RESET + " " + e["name"][:40].ljust(40) + " -> " + e["value_data"][:60])
+                  Colors.RESET + new_badge + " " + e["name"][:40].ljust(40) + " -> " + e["value_data"][:60])
+
+    if args.baseline:
+        bl_id = col.create_baseline(note="manual snapshot")
+        count = col.conn.execute(
+            "SELECT COUNT(*) FROM baseline_entries WHERE baseline_id = ?", (bl_id,)
+        ).fetchone()[0]
+        print("[+] Baseline #" + str(bl_id) + " saved — " + str(count) + " entries snapshotted.")
 
     if args.sysmon:
         print("[*] Collecting Sysmon events (last " + str(args.hours) + "h)...")
@@ -571,4 +620,27 @@ if __name__ == "__main__":
           " | Low: "       + Colors.GREEN  + str(reg["low"])      + Colors.RESET)
     print("    4688 events: " + str(stats["process_events"]) +
           " | Sysmon events: " + str(stats["sysmon_events"]))
+
+    if getattr(args, 'json', False):
+        import json as _json
+        try:
+            from ps_decode import decode_ps_command, format_decoded
+        except ImportError:
+            decode_ps_command = lambda x: None
+            format_decoded = lambda x: x or ""
+        all_entries = col.get_all_entries()
+        export = []
+        for e in all_entries:
+            chain = col.get_chain(e["id"]) if e["severity"] in ("high", "critical") else []
+            decoded = decode_ps_command(e.get("value_data", ""))
+            record = dict(e)
+            record["chain"] = chain
+            if decoded:
+                record["decoded_command"] = format_decoded(decoded, max_len=500)
+            export.append(record)
+        out = "registry_export.json"
+        with open(out, "w") as f:
+            _json.dump(export, f, indent=2, default=str)
+        print("[+] JSON exported to " + out + " (" + str(len(export)) + " entries)")
+
     col.close()

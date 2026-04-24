@@ -154,7 +154,7 @@ def tag_service(_name: str) -> list[dict]:
     return [{"id": "T1543.003", "name": "Create or Modify System Process: Windows Service"}]
 
 def tag_process(proc_name: str, cmdline: str) -> list[dict]:
-    name_l, cmd_l = proc_name.lower(), cmdline.lower()
+    name_l, cmd_l = (proc_name or "").lower(), (cmdline or "").lower()
     seen, tags = set(), []
     for fragment, tid, tname in MITRE_PROC_TECHNIQUES:
         if fragment in name_l and tid not in seen:
@@ -408,6 +408,17 @@ class BaseCollector:
                 hash_id      TEXT UNIQUE
             );
 
+            -- Sysmon Event 11 FileCreate — task XML writes
+            -- Gives exact creator PID while process is still alive
+            CREATE TABLE IF NOT EXISTS sysmon_file_events (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                pid          INTEGER,
+                process_name TEXT,
+                process_path TEXT,
+                target_file  TEXT,
+                event_time   TEXT
+            );
+
             -- Attack chains (shared across all entry types)
             CREATE TABLE IF NOT EXISTS attack_chains (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -428,11 +439,76 @@ class BaseCollector:
             CREATE INDEX IF NOT EXISTS idx_sysmon_proc_pid ON sysmon_process_events(pid);
             CREATE INDEX IF NOT EXISTS idx_sysmon_proc_ppid ON sysmon_process_events(parent_pid);
             CREATE INDEX IF NOT EXISTS idx_sysmon_proc_time ON sysmon_process_events(event_time);
+            CREATE INDEX IF NOT EXISTS idx_sysmon_file_pid  ON sysmon_file_events(pid);
+            CREATE INDEX IF NOT EXISTS idx_sysmon_file_time ON sysmon_file_events(event_time);
+            CREATE INDEX IF NOT EXISTS idx_sysmon_file_tgt  ON sysmon_file_events(target_file);
         """)
         conn.commit()
         return conn
 
+
+    def create_baseline(self, name="default", note=""):
+        from datetime import datetime as _dt
+        now = _dt.utcnow().isoformat()
+        cur = self.conn.execute(
+            "INSERT INTO baselines (name, created_at, note) VALUES (?, ?, ?)",
+            (name, now, note)
+        )
+        bl_id = cur.lastrowid
+        for entry_type, table in [("registry","registry_entries"),("task","task_entries"),("service","service_entries")]:
+            try:
+                rows = self.conn.execute(f"SELECT hash_id FROM {table}").fetchall()
+                for row in rows:
+                    try:
+                        self.conn.execute("INSERT OR IGNORE INTO baseline_entries (baseline_id, entry_type, hash_id) VALUES (?, ?, ?)", (bl_id, entry_type, row["hash_id"]))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        self.conn.commit()
+        return bl_id
+
+    def get_active_baseline(self):
+        row = self.conn.execute("SELECT * FROM baselines ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
+    def list_baselines(self):
+        rows = self.conn.execute("SELECT b.id, b.name, b.created_at, b.note, COUNT(be.id) as entry_count FROM baselines b LEFT JOIN baseline_entries be ON be.baseline_id = b.id GROUP BY b.id ORDER BY b.id DESC").fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_safe(self, entry_type, hash_id):
+        bl = self.get_active_baseline()
+        if not bl:
+            self.create_baseline(note="auto-created by mark-safe")
+            bl = self.get_active_baseline()
+        try:
+            self.conn.execute("INSERT INTO baseline_entries (baseline_id, entry_type, hash_id, safe) VALUES (?, ?, ?, 1) ON CONFLICT(baseline_id, entry_type, hash_id) DO UPDATE SET safe = 1", (bl["id"], entry_type, hash_id))
+            self.conn.commit()
+            return True
+        except Exception:
+            return False
+
+    def is_baselined(self, entry_type, hash_id, baseline_id=None):
+        if baseline_id is None:
+            bl = self.get_active_baseline()
+            if not bl:
+                return False
+            baseline_id = bl["id"]
+        row = self.conn.execute("SELECT 1 FROM baseline_entries WHERE baseline_id = ? AND entry_type = ? AND hash_id = ?", (baseline_id, entry_type, hash_id)).fetchone()
+        return row is not None
+
+    def get_new_entries(self, entry_type, table, baseline_id=None):
+        if baseline_id is None:
+            bl = self.get_active_baseline()
+            baseline_id = bl["id"] if bl else None
+        if baseline_id is None:
+            rows = self.conn.execute(f"SELECT * FROM {table}").fetchall()
+            return [dict(r) for r in rows]
+        rows = self.conn.execute(f"SELECT t.* FROM {table} t WHERE NOT EXISTS (SELECT 1 FROM baseline_entries be WHERE be.baseline_id = ? AND be.entry_type = ? AND be.hash_id = t.hash_id)", (baseline_id, entry_type)).fetchall()
+        return [dict(r) for r in rows]
+
     def close(self):
+
         self.conn.close()
 
     # ------------------------------------------------------------------
@@ -449,7 +525,8 @@ class BaseCollector:
         cutoff  = datetime.utcnow() - timedelta(hours=hours_back)
         reg_count  = self._collect_sysmon_registry_events(ms_back, cutoff)
         proc_count = self._collect_sysmon_process_events(ms_back, cutoff)
-        return reg_count + proc_count
+        file_count = self._collect_sysmon_file_events(ms_back, cutoff)
+        return reg_count + proc_count + file_count
 
     def collect_process_events(self, hours_back: int = None) -> int:
         if hours_back is None:
@@ -660,6 +737,89 @@ class BaseCollector:
             return True
         except Exception as e:
             debug_print("Error storing sysmon process event:", e)
+            return False
+
+    def _collect_sysmon_file_events(self, ms_back: int, cutoff: datetime) -> int:
+        """Collect Sysmon Event 11 FileCreate events for the Tasks folder.
+        These fire synchronously while the creating process is still alive,
+        giving us exact PID + full parent lineage with no race condition."""
+        xpath = ("*[System[EventID=11 and TimeCreated"
+                 "[timediff(@SystemTime) <= " + str(ms_back) + "]]]")
+        count = 0
+        try:
+            qh = win32evtlog.EvtQuery(
+                self.SYSMON_CHANNEL,
+                win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryReverseDirection,
+                xpath, None,
+            )
+        except (pywintypes.error, AttributeError):
+            return 0
+        try:
+            while True:
+                try:
+                    events = win32evtlog.EvtNext(qh, 100, -1, 0)
+                except pywintypes.error:
+                    break
+                if not events:
+                    break
+                for eh in events:
+                    try:
+                        xml_str = win32evtlog.EvtRender(
+                            eh, win32evtlog.EvtRenderEventXml)
+                        if self._store_sysmon_file_event(xml_str, cutoff):
+                            count += 1
+                    except Exception:
+                        pass
+        finally:
+            try:
+                win32evtlog.EvtClose(qh)
+            except AttributeError:
+                pass
+        return count
+
+    def _store_sysmon_file_event(self, xml_str: str, cutoff: datetime) -> bool:
+        try:
+            root = ET.fromstring(xml_str)
+            ns   = "{http://schemas.microsoft.com/win/2004/08/events/event}"
+            tc   = root.find(".//" + ns + "TimeCreated")
+            if tc is None:
+                return False
+            ts       = tc.attrib.get("SystemTime", "")
+            ts_clean = ts.split(".")[0].rstrip("Z")
+            event_dt = datetime.fromisoformat(ts_clean)
+            if event_dt < cutoff:
+                return False
+
+            data_dict = {
+                d.attrib["Name"]: (d.text or "").strip()
+                for d in root.findall(".//" + ns + "Data")
+                if d.attrib.get("Name")
+            }
+
+            target = data_dict.get("TargetFilename", "")
+            # Only keep events for the Tasks folder
+            if "Tasks" not in target:
+                return False
+
+            pid_str = data_dict.get("ProcessId", "0")
+            try:
+                pid = int(pid_str, 16) if pid_str.startswith("0x") else int(pid_str)
+            except ValueError:
+                pid = 0
+
+            process_path = data_dict.get("Image", "")
+            process_name = os.path.basename(process_path)
+
+            self.conn.execute("""
+                INSERT OR IGNORE INTO sysmon_file_events
+                    (pid, process_name, process_path, target_file, event_time)
+                VALUES (?, ?, ?, ?, ?)
+            """, (pid, process_name, process_path,
+                  target, event_dt.isoformat()))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            debug_print("Error storing sysmon file event:", e)
             return False
 
     def _store_event_4688_xml(self, xml_str: str, cutoff: datetime) -> bool:

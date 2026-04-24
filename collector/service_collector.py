@@ -554,6 +554,16 @@ if __name__ == "__main__":
     parser.add_argument("--chain-all",    action="store_true")
     parser.add_argument("--no-color",     action="store_true")
     parser.add_argument("--db",           default="reghunt.db")
+    parser.add_argument("--baseline",     action="store_true",
+                        help="Snapshot current entries as new baseline")
+    parser.add_argument("--diff",         action="store_true",
+                        help="Only show entries NEW since last baseline")
+    parser.add_argument("--mark-safe",    type=str, metavar="HASH_ID",
+                        help="Mark entry hash as safe in active baseline")
+    parser.add_argument("--baselines",    action="store_true",
+                        help="List all saved baselines")
+    parser.add_argument("--json",         action="store_true",
+                        help="Export results to JSON file")
     args = parser.parse_args()
 
     if args.no_color:
@@ -562,17 +572,57 @@ if __name__ == "__main__":
     args.hours = max(1, min(args.hours, BaseCollector.MAX_HOURS))
     col = ServiceCollector(db_path=args.db, collection_hours=args.hours)
 
+    # ── Baseline management ──────────────────────────────────────────
+    if args.baselines:
+        bls = col.list_baselines()
+        if not bls:
+            print("[*] No baselines saved yet. Run --baseline after a scan.")
+        else:
+            print("[*] Saved baselines:")
+            for b in bls:
+                print("  [" + str(b["id"]) + "] " + b["name"] +
+                      " | " + b["created_at"][:19] +
+                      " | " + str(b["entry_count"]) + " entries" +
+                      (" | " + b["note"] if b["note"] else ""))
+
+    if args.mark_safe:
+        if col.mark_safe("service", args.mark_safe):
+            print("[+] Marked hash " + args.mark_safe + " as safe in active baseline.")
+        else:
+            print("[!] Failed to mark safe.")
+
     if args.scan or args.scan_all:
         print("[*] Scanning Windows services...")
         entries = col.collect_services(skip_builtin=not args.scan_all)
-        print("[+] Found " + str(len(entries)) + " services")
+
+        if args.diff:
+            new_entries = col.get_new_entries("service", "service_entries")
+            new_hashes  = {e["hash_id"] for e in new_entries}
+            entries     = [e for e in entries if e["hash_id"] in new_hashes]
+            bl = col.get_active_baseline()
+            bl_date = bl["created_at"][:19] if bl else "never"
+            print("[+] Found " + str(len(entries)) +
+                  " NEW services since baseline (" + bl_date + ")")
+            if not entries:
+                print("    ✅ No new services since last baseline.")
+        else:
+            print("[+] Found " + str(len(entries)) + " services")
+
         for e in entries:
             icon      = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(e["severity"], "⚪")
             sev_color = {"critical": Colors.RED, "high": Colors.YELLOW,
                          "medium": Colors.WHITE, "low": Colors.GREEN}.get(e["severity"], Colors.RESET)
+            new_badge = Colors.CYAN + " [NEW]" + Colors.RESET if args.diff else ""
             print("  " + icon + " " + sev_color + "[" + e["severity"].upper() + "]" +
-                  Colors.RESET + " " + e["service_name"][:40].ljust(40) +
+                  Colors.RESET + new_badge + " " + e["service_name"][:40].ljust(40) +
                   " -> " + e["binary_path"][:60])
+
+    if args.baseline:
+        bl_id = col.create_baseline(note="manual snapshot")
+        count = col.conn.execute(
+            "SELECT COUNT(*) FROM baseline_entries WHERE baseline_id = ?", (bl_id,)
+        ).fetchone()[0]
+        print("[+] Baseline #" + str(bl_id) + " saved — " + str(count) + " entries snapshotted.")
 
     if args.sysmon:
         print("[*] Collecting Sysmon events (last " + str(args.hours) + "h)...")
@@ -603,6 +653,11 @@ if __name__ == "__main__":
         ).fetchall()
         print("[*] Building chains for " + str(len(rows)) + " High/Critical services...")
         from registry_collector import format_chain_node
+        try:
+            from ps_decode import decode_ps_command, format_decoded
+        except ImportError:
+            decode_ps_command = lambda x: None
+            format_decoded = lambda x: x or ""
         for row in rows:
             sev_color = Colors.RED if row["severity"] == "critical" else Colors.YELLOW
             print("\n" + Colors.BOLD + "--- Service " + str(row["id"]) + ": " +
@@ -613,6 +668,11 @@ if __name__ == "__main__":
                 print()
                 for i, node in enumerate(chain):
                     print(format_chain_node(node, "  " * i))
+                    cmdline = node.get("cmdline", "") or ""
+                    decoded = decode_ps_command(cmdline)
+                    if decoded:
+                        print("  " * i + "  " + Colors.CYAN +
+                              "🔓 Decoded: " + format_decoded(decoded) + Colors.RESET)
                     print()
             else:
                 print("    [!] No chain")
@@ -625,4 +685,29 @@ if __name__ == "__main__":
           " | High: "      + Colors.YELLOW + str(svc["high"])     + Colors.RESET +
           " | Medium: "    + str(svc["medium"]) +
           " | Low: "       + Colors.GREEN  + str(svc["low"])      + Colors.RESET)
+
+    if getattr(args, 'json', False):
+        import json as _json
+        try:
+            from ps_decode import decode_ps_command, format_decoded
+        except ImportError:
+            decode_ps_command = lambda x: None
+            format_decoded = lambda x: x or ""
+        all_entries = col.conn.execute(
+            "SELECT * FROM service_entries ORDER BY severity DESC, service_name"
+        ).fetchall()
+        export = []
+        for row in all_entries:
+            e = dict(row)
+            chain = col.get_chain(e["id"]) if e["severity"] in ("high", "critical") else []
+            decoded = decode_ps_command(e.get("binary_path", ""))
+            e["chain"] = chain
+            if decoded:
+                e["decoded_command"] = format_decoded(decoded, max_len=500)
+            export.append(e)
+        out = "service_export.json"
+        with open(out, "w") as f:
+            _json.dump(export, f, indent=2, default=str)
+        print("[+] JSON exported to " + out + " (" + str(len(export)) + " entries)")
+
     col.close()
