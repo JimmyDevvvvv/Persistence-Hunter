@@ -16,7 +16,9 @@ router = APIRouter()
 async def trigger_scan(request: ScanRequest,
                        background_tasks: BackgroundTasks):
     """
-    Start a background scan. Returns a job_id to poll with GET /api/scan/status.
+    Start a background scan.
+    Pipeline: collect → sysmon/4688/4698/7045 events → build chains → threat score → diff.
+    Returns job_id to poll with GET /api/scan/status.
     Only one scan can run at a time.
     """
     if is_scan_running():
@@ -28,12 +30,19 @@ async def trigger_scan(request: ScanRequest,
 
     job = create_job()
     background_tasks.add_task(run_scan, job, request)
-    return {"job_id": job.job_id, "status": "pending", "message": "Scan started"}
+    return {
+        "job_id":  job.job_id,
+        "status":  "pending",
+        "message": "Scan started — pipeline: collect → events → chains → threat score",
+    }
 
 
 @router.get("/status")
 def get_scan_status(job_id: str = None):
-    """Poll a scan job. If no job_id given, returns the most recent job."""
+    """
+    Poll a scan job. Returns stage, progress %, and summary when done.
+    If no job_id, returns the most recent job.
+    """
     job = get_job(job_id) if job_id else get_latest_job()
     if not job:
         return {"status": "no_jobs"}

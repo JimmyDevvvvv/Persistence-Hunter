@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.dependencies import DB_PATH
 from api.routes import (
     stats, entries, chains, scan,
-    alerts, baseline, enrichment, search, export,
+    alerts, baseline, search, export,
 )
 from api.routes.scores import router as scores_router
 
@@ -62,7 +62,6 @@ app.include_router(chains.router,     prefix="/api/chains",    tags=["Chains"])
 app.include_router(scan.router,       prefix="/api/scan",      tags=["Scan"])
 app.include_router(alerts.router,     prefix="/api/alerts",    tags=["Alerts"])
 app.include_router(baseline.router,   prefix="/api/baseline",  tags=["Baseline"])
-app.include_router(enrichment.router, prefix="/api/enrich",    tags=["Enrichment"])
 app.include_router(search.router,     prefix="/api/search",    tags=["Search"])
 app.include_router(export.router,     prefix="/api/export",    tags=["Export"])
 app.include_router(scores_router,     prefix="/api/scores",    tags=["Scores"])

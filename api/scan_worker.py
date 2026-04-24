@@ -1,23 +1,26 @@
 """
 api/scan_worker.py
-------------------
-Scan job state management and the background worker that runs
-collectors + enrichment without blocking the event loop.
+Full scan pipeline: collect → sysmon/4688 events → build chains → threat score.
+No enrichment module. Everything runs from the collectors and threat_scorer directly.
 """
 
 import os
+import sys
 import asyncio
 import uuid
+import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
 from api.models import ScanRequest
 from api.dependencies import DB_PATH
 
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
-# ---------------------------------------------------------------------------
-# Job state
-# ---------------------------------------------------------------------------
+
+# ── Job state ──────────────────────────────────────────────────────────────
 
 class ScanJob:
     __slots__ = (
@@ -39,7 +42,6 @@ class ScanJob:
         return {k: getattr(self, k) for k in self.__slots__}
 
 
-# In-memory job registry — keyed by job_id
 _scan_jobs:      dict[str, ScanJob] = {}
 _current_job_id: Optional[str]      = None
 
@@ -59,7 +61,7 @@ def is_scan_running() -> bool:
     return (
         _current_job_id is not None and
         _scan_jobs.get(_current_job_id) is not None and
-        _scan_jobs[_current_job_id].status in ("running", "scoring")
+        _scan_jobs[_current_job_id].status == "running"
     )
 
 def create_job() -> ScanJob:
@@ -69,13 +71,54 @@ def create_job() -> ScanJob:
     return job
 
 
-# ---------------------------------------------------------------------------
-# Background worker
-# ---------------------------------------------------------------------------
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+def _run_threat_scorer(db_path: str) -> int:
+    try:
+        from threat_scorer import score_all
+        return score_all(verbose=False)
+    except Exception as e:
+        print(f"[scan_worker] threat_scorer failed: {e}")
+        return 0
+
+
+def _get_new_entry_count(db_path: str) -> dict:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        bl = conn.execute(
+            "SELECT id FROM baselines ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not bl:
+            return {"registry": 0, "task": 0, "service": 0, "total": 0}
+
+        bl_id = bl["id"]
+        counts = {}
+        for et, table in [
+            ("registry", "registry_entries"),
+            ("task",     "task_entries"),
+            ("service",  "service_entries"),
+        ]:
+            row = conn.execute(f"""
+                SELECT COUNT(*) as c FROM {table} t
+                WHERE t.severity IN ('critical','high')
+                AND NOT EXISTS (
+                    SELECT 1 FROM baseline_entries be
+                    WHERE be.baseline_id=? AND be.entry_type=? AND be.hash_id=t.hash_id
+                )
+            """, (bl_id, et)).fetchone()
+            counts[et] = row["c"] if row else 0
+        counts["total"] = sum(counts.values())
+        return counts
+    finally:
+        conn.close()
+
+
+# ── Main worker ────────────────────────────────────────────────────────────
 
 async def run_scan(job: ScanJob, request: ScanRequest):
     global _current_job_id
-    job.status     = "running"
+    job.status      = "running"
     _current_job_id = job.job_id
 
     def _update(stage: str, progress: int):
@@ -89,66 +132,89 @@ async def run_scan(job: ScanJob, request: ScanRequest):
             "services":       0,
             "sysmon_events":  0,
             "process_events": 0,
+            "chains_built":   0,
+            "scored":         0,
+            "new_entries":    {},
+            "new_total":      0,
         }
 
-        if "registry" in request.entry_types:
-            _update("Scanning registry...", 5)
+        hours = getattr(request, "hours", 24)
+        types = getattr(request, "entry_types", ["registry", "task", "service"])
+
+        # ── 1. Registry ──────────────────────────────────────────────────
+        if "registry" in types:
+            _update("Scanning registry run keys...", 5)
             from collector.registry_collector import RegistryCollector
-            rc = RegistryCollector(db_path=DB_PATH,
-                                   collection_hours=request.hours)
+            rc = RegistryCollector(db_path=DB_PATH, collection_hours=hours)
             entries = rc.collect_registry()
             summary["registry"] = len(entries)
 
-            _update("Collecting Sysmon events...", 20)
+            _update("Collecting Sysmon events...", 12)
             summary["sysmon_events"] += rc.collect_sysmon_events()
 
-            _update("Collecting 4688 events...", 35)
+            _update("Collecting 4688 process events...", 18)
             summary["process_events"] += rc.collect_process_events()
+
+            _update("Building registry attack chains...", 24)
+            for e in entries:
+                if e.get("severity") in ("high", "critical"):
+                    try:
+                        rc.build_attack_chain(e["id"])
+                        summary["chains_built"] += 1
+                    except Exception:
+                        pass
             rc.close()
 
-        if "task" in request.entry_types:
-            _update("Scanning scheduled tasks...", 45)
+        # ── 2. Scheduled tasks ───────────────────────────────────────────
+        if "task" in types:
+            _update("Scanning scheduled tasks...", 32)
             from collector.task_collector import TaskCollector
-            tc = TaskCollector(db_path=DB_PATH,
-                               collection_hours=request.hours)
-            summary["tasks"] = len(tc.collect_tasks())
+            tc = TaskCollector(db_path=DB_PATH, collection_hours=hours)
+            task_entries = tc.collect_tasks()
+            summary["tasks"] = len(task_entries)
+
+            _update("Collecting task creation events (4698)...", 40)
             tc.collect_task_events()
+
+            _update("Building task attack chains...", 46)
+            for e in task_entries:
+                if e.get("severity") in ("high", "critical"):
+                    try:
+                        tc.build_attack_chain(e["id"])
+                        summary["chains_built"] += 1
+                    except Exception:
+                        pass
             tc.close()
 
-        if "service" in request.entry_types:
-            _update("Scanning services...", 60)
+        # ── 3. Services ──────────────────────────────────────────────────
+        if "service" in types:
+            _update("Scanning Windows services...", 54)
             from collector.service_collector import ServiceCollector
-            sc = ServiceCollector(db_path=DB_PATH,
-                                  collection_hours=request.hours)
-            summary["services"] = len(sc.collect_services())
+            sc = ServiceCollector(db_path=DB_PATH, collection_hours=hours)
+            svc_entries = sc.collect_services()
+            summary["services"] = len(svc_entries)
+
+            _update("Collecting service install events (7045)...", 62)
             sc.collect_service_events()
+
+            _update("Building service attack chains...", 68)
+            for e in svc_entries:
+                if e.get("severity") in ("high", "critical"):
+                    try:
+                        sc.build_attack_chain(e["id"])
+                        summary["chains_built"] += 1
+                    except Exception:
+                        pass
             sc.close()
 
-        if request.enrich:
-            _update("Enriching high/critical entries...", 75)
-            from enrichment.enrichment_manager import EnrichmentManager
-            mgr = EnrichmentManager(
-                db_path=DB_PATH,
-                vt_api_key=request.vt_api_key or os.environ.get("VT_API_KEY"),
-                mb_api_key=request.mb_api_key or os.environ.get("MB_API_KEY"),
-            )
-            mgr.enrich_all(
-                only_high_critical=True,
-                run_intel=bool(
-                    request.vt_api_key or os.environ.get("VT_API_KEY")
-                ),
-            )
+        # ── 4. Threat scoring ────────────────────────────────────────────
+        _update("Running threat scorer...", 80)
+        summary["scored"] = _run_threat_scorer(DB_PATH)
 
-        # Always score after collection — keeps threat scores in sync
-        _update("Scoring threats...", 88)
-        try:
-            from threat_scorer import score_all
-            scored = score_all(db_path=DB_PATH, verbose=False)
-            summary["scored"] = scored
-        except Exception as exc:
-            # Non-fatal — scan results are still valid without scores
-            summary["scored"] = 0
-            print(f"[scan_worker] Scoring warning: {exc}")
+        # ── 5. Diff vs baseline ──────────────────────────────────────────
+        _update("Calculating new entries since baseline...", 92)
+        summary["new_entries"] = _get_new_entry_count(DB_PATH)
+        summary["new_total"]   = summary["new_entries"].pop("total", 0)
 
         return summary
 
