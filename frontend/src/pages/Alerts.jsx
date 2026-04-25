@@ -150,7 +150,7 @@ function TechBadge({ id, name }) {
 
 function AlertDetail({ alert }) {
     const navigate = useNavigate()
-    const [tab, setTab] = useState('summary')
+    const [tab, setTab] = useState('chain')
 
     const { data: chainData, isLoading: chainLoading } = useQuery({
         queryKey: ['chain', alert?.entry_type, alert?.id],
@@ -315,72 +315,170 @@ function AlertDetail({ alert }) {
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
 
                 {tab === 'summary' && (
-                    <div style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {/* Status */}
-                        <div style={{ padding: '12px 14px', borderRadius: 9, background: score >= 80 ? 'rgba(255,32,85,.06)' : score >= 60 ? 'rgba(255,119,34,.06)' : 'rgba(15,19,32,.9)', border: `1px solid ${score >= 80 ? 'rgba(255,32,85,.25)' : score >= 60 ? 'rgba(255,119,34,.2)' : 'rgba(255,255,255,.07)'}` }}>
-                            <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: score >= 80 ? '#ff2055' : score >= 60 ? '#ff7722' : '#ffd60a', marginBottom: 8 }}>
-                                {alert.severity?.toUpperCase()} PERSISTENCE — Score {score ?? '?'}
+                    <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <style>{`
+                            @keyframes rh-al-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+                            @keyframes rh-al-scan{0%{left:-60%}100%{left:160%}}
+                            @keyframes rh-al-pip{0%,100%{box-shadow:0 0 4px currentColor}50%{box-shadow:0 0 14px currentColor,0 0 28px currentColor}}
+                            .rh-al-card{border-radius:12px;overflow:hidden;position:relative;transition:transform .2s,box-shadow .2s;}
+                            .rh-al-card:hover{transform:translateY(-2px);}
+                            .rh-al-shimmer{position:absolute;top:0;left:-60%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.04),transparent);animation:rh-al-scan 3s ease-in-out infinite;pointer-events:none;}
+                        `}</style>
+
+                        {/* ── Hero threat card ── */}
+                        <div className="rh-al-card" style={{
+                            background: `linear-gradient(135deg,${score >= 80 ? 'rgba(255,32,85,.12)' : score >= 60 ? 'rgba(255,119,34,.1)' : 'rgba(255,214,10,.08)'} 0%,rgba(15,19,32,.95) 100%)`,
+                            border: `1px solid ${score >= 80 ? 'rgba(255,32,85,.3)' : score >= 60 ? 'rgba(255,119,34,.25)' : 'rgba(255,214,10,.2)'}`,
+                            boxShadow: `0 8px 32px ${score >= 80 ? 'rgba(255,32,85,.08)' : score >= 60 ? 'rgba(255,119,34,.06)' : 'rgba(255,214,10,.04)'}`,
+                            padding: '20px 22px',
+                            animation: 'rh-al-in .35s cubic-bezier(.16,1,.3,1)',
+                        }}>
+                            <div className="rh-al-shimmer" />
+                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: score >= 80 ? '#ff2055' : score >= 60 ? '#ff7722' : '#ffd60a', animation: 'rh-al-pip 1.8s ease-in-out infinite', color: score >= 80 ? '#ff2055' : score >= 60 ? '#ff7722' : '#ffd60a' }} />
+                                        <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, fontWeight: 700, letterSpacing: '.16em', textTransform: 'uppercase', color: score >= 80 ? '#ff2055' : score >= 60 ? '#ff7722' : '#ffd60a' }}>
+                                            {alert.severity} persistence
+                                        </span>
+                                    </div>
+                                    <div style={{ fontFamily: 'Inter', fontSize: 22, fontWeight: 700, color: 'rgba(238,242,255,.97)', letterSpacing: '-.01em', marginBottom: 4 }}>{name}</div>
+                                    <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, color: 'rgba(90,107,138,1)' }}>{alert.entry_type} · {chain.length} hop chain</div>
+                                </div>
+                                {score != null && (
+                                    <div style={{ textAlign: 'center', flexShrink: 0 }}>
+                                        <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 36, fontWeight: 700, lineHeight: 1, color: score >= 80 ? '#ff2055' : score >= 60 ? '#ff7722' : '#ffd60a', textShadow: `0 0 30px ${score >= 80 ? 'rgba(255,32,85,.4)' : score >= 60 ? 'rgba(255,119,34,.3)' : 'rgba(255,214,10,.3)'}` }}>{score}</div>
+                                        <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, color: 'rgba(53,64,96,.8)', textTransform: 'uppercase', letterSpacing: '.1em', marginTop: 2 }}>threat score</div>
+                                    </div>
+                                )}
                             </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontFamily: 'IBM Plex Mono', fontSize: 10, color: 'var(--text-muted)' }}>
-                                <span>Type <strong style={{ color: 'var(--cyan)' }}>{alert.entry_type}</strong></span>
-                                <span>Chain <strong style={{ color: 'var(--cyan)' }}>{chain.length} hops</strong></span>
-                                {alert.last_seen && <span>Seen <strong style={{ color: 'var(--text-secondary)' }}>{new Date(alert.last_seen).toLocaleString()}</strong></span>}
+                            {score != null && (
+                                <div style={{ marginBottom: 14 }}>
+                                    <div style={{ height: 3, background: 'rgba(255,255,255,.05)', borderRadius: 3, overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', borderRadius: 3, width: `${score}%`, background: score >= 80 ? 'linear-gradient(90deg,#ff2055,#ff6b8a)' : score >= 60 ? 'linear-gradient(90deg,#ff7722,#ffaa55)' : 'linear-gradient(90deg,#ffd60a,#ffe87a)', boxShadow: `0 0 8px ${score >= 80 ? '#ff2055' : score >= 60 ? '#ff7722' : '#ffd60a'}60`, transition: 'width 1s cubic-bezier(.16,1,.3,1)' }} />
+                                    </div>
+                                </div>
+                            )}
+                            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                                {[['User', chain[0]?.user || 'Unknown'], ['Source', chain[0]?.source?.toUpperCase() || 'STUB'], ['Seen', alert.last_seen ? new Date(alert.last_seen).toLocaleString() : '—'], ['Depth', `${chain.length} hops`]].map(([k, v]) => (
+                                    <div key={k}>
+                                        <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, color: 'rgba(53,64,96,.7)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 2 }}>{k}</div>
+                                        <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, color: 'rgba(192,200,224,.9)' }}>{v}</div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
 
-                        {/* Signature — services */}
-                        {alert.entry_type === 'service' && (
-                            <div style={{ borderRadius: 9, background: 'rgba(13,17,30,.92)', border: `1px solid ${sigEntry?.sig_status === 'Valid' ? 'rgba(0,230,118,.15)' : sigEntry?.sig_status === 'NotSigned' ? 'rgba(255,32,85,.25)' : 'rgba(255,255,255,.07)'}`, overflow: 'hidden' }}>
-                                <div style={{ padding: '7px 13px', borderBottom: '1px solid rgba(255,255,255,.05)', fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(53,64,96,.85)' }}>🔐 Binary Signature</div>
-                                <div style={{ padding: '10px 13px', fontFamily: 'IBM Plex Mono', fontSize: 10 }}>
-                                    {sigEntry ? (<>
-                                        <div style={{ color: sigEntry.sig_status === 'Valid' ? '#00e676' : '#ff2055', marginBottom: 6 }}>
-                                            {sigEntry.sig_status === 'Valid' ? `✅ Signed — ${sigEntry.signer}` : sigEntry.sig_status === 'NotSigned' ? '❌ UNSIGNED' : sigEntry.sig_status === 'Missing' ? '👻 Binary not found' : sigEntry.sig_status}
-                                        </div>
-                                        {sigEntry.issuer && <div style={{ color: 'var(--text-muted)', fontSize: 9, marginBottom: 4 }}>Issuer: {sigEntry.issuer}</div>}
-                                        {sigEntry.suspicious_path && <div style={{ color: '#ffd60a', fontSize: 9, marginBottom: 4 }}>⚠ Suspicious path: {sigEntry.exe_path}</div>}
-                                        {sigEntry.sha256 && <div style={{ color: 'rgba(53,64,96,.7)', fontSize: 8, marginBottom: 6, wordBreak: 'break-all' }}>{sigEntry.sha256}</div>}
-                                        {sigEntry.vt_url && <a href={sigEntry.vt_url} target="_blank" rel="noopener noreferrer" style={{ color: '#00e5ff', fontSize: 9 }}>🔍 VirusTotal →</a>}
-                                    </>) : (
-                                        <div style={{ color: 'var(--text-muted)' }}>No signature data — POST /api/signatures/run</div>
-                                    )}
+                        {/* ── Anomalies ── */}
+                        {anomalies.length > 0 && (
+                            <div className="rh-al-card" style={{ background: 'rgba(255,32,85,.06)', border: '1px solid rgba(255,32,85,.25)', padding: '14px 18px', animation: 'rh-al-in .35s cubic-bezier(.16,1,.3,1) .04s both' }}>
+                                <div className="rh-al-shimmer" style={{ background: 'linear-gradient(90deg,transparent,rgba(255,32,85,.06),transparent)' }} />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#ff2055" strokeWidth="2.5" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+                                    <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: '#ff2055' }}>Behavioral Anomalies</span>
                                 </div>
-                            </div>
-                        )}
-
-                        {/* Decoded PS */}
-                        {decodedPS && (
-                            <div style={{ borderRadius: 9, background: 'rgba(0,229,255,.04)', border: '1px solid rgba(0,229,255,.15)', overflow: 'hidden' }}>
-                                <div style={{ padding: '7px 13px', borderBottom: '1px solid rgba(0,229,255,.1)', fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: '#00e5ff' }}>🔓 Decoded PowerShell</div>
-                                <div style={{ padding: '10px 13px', fontFamily: 'IBM Plex Mono', fontSize: 10, color: '#00e5ff', lineHeight: 1.7, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>
-                                    {decodedPS.length > 400 ? decodedPS.slice(0, 400) + '…' : decodedPS}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* IOC */}
-                        {alert.ioc_notes && alert.ioc_notes.toLowerCase() !== 'none' && (
-                            <div style={{ padding: '10px 13px', borderRadius: 9, background: 'rgba(255,214,10,.04)', border: '1px solid rgba(255,214,10,.15)' }}>
-                                <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#ffd60a', marginBottom: 5 }}>⚠ IOC Notes</div>
-                                <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, color: 'rgba(192,200,224,.85)', lineHeight: 1.6 }}>{alert.ioc_notes}</div>
-                            </div>
-                        )}
-
-                        {/* MITRE */}
-                        {techniques.length > 0 && (
-                            <div style={{ padding: '10px 13px', borderRadius: 9, background: 'rgba(196,112,255,.04)', border: '1px solid rgba(196,112,255,.12)' }}>
-                                <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#c470ff', marginBottom: 8 }}>📌 MITRE ATT&CK</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                    {techniques.map(t => (
-                                        <span key={t.id || t} title={t.name} style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'rgba(196,112,255,.1)', color: '#c470ff', border: '1px solid rgba(196,112,255,.25)' }}>
-                                            {t.id || t}
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                                    {anomalies.map((a, i) => (
+                                        <span key={a} style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, padding: '4px 10px', borderRadius: 5, background: 'rgba(255,32,85,.12)', color: '#ff2055', border: '1px solid rgba(255,32,85,.3)', animation: `rh-al-in .25s ease ${i * .05}s both` }}>
+                                            {a.replace(/_/g, ' ')}
                                         </span>
                                     ))}
                                 </div>
                             </div>
                         )}
 
-                        {/* View full */}
+                        {/* ── Two-col: signature + decoded PS ── */}
+                        <div style={{ display: 'grid', gridTemplateColumns: alert.entry_type === 'service' || decodedPS ? (alert.entry_type === 'service' && decodedPS ? '1fr 1fr' : '1fr 1fr') : '1fr', gap: 14 }}>
+                            {alert.entry_type === 'service' && (
+                                <div className="rh-al-card" style={{ background: 'rgba(13,17,30,.95)', padding: '16px 18px', border: `1px solid ${sigEntry?.sig_status === 'Valid' ? 'rgba(0,230,118,.2)' : sigEntry?.sig_status === 'NotSigned' ? 'rgba(255,32,85,.25)' : 'rgba(255,255,255,.07)'}`, animation: 'rh-al-in .35s cubic-bezier(.16,1,.3,1) .08s both' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={sigEntry?.sig_status === 'Valid' ? '#00e676' : '#ff2055'} strokeWidth="2" strokeLinecap="round">
+                                            {sigEntry?.sig_status === 'Valid' ? <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><polyline points="9 12 11 14 15 10" /></> : <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><line x1="9" y1="9" x2="15" y2="15" /><line x1="15" y1="9" x2="9" y2="15" /></>}
+                                        </svg>
+                                        <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(53,64,96,.85)' }}>Binary Signature</span>
+                                    </div>
+                                    {sigEntry ? (<>
+                                        <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 12, fontWeight: 700, color: sigEntry.sig_status === 'Valid' ? '#00e676' : '#ff2055', marginBottom: 8 }}>
+                                            {sigEntry.sig_status === 'Valid' ? `✅ Signed` : sigEntry.sig_status === 'NotSigned' ? '❌ Unsigned' : sigEntry.sig_status === 'Missing' ? '👻 Missing' : sigEntry.sig_status}
+                                        </div>
+                                        {sigEntry.signer && <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, color: 'rgba(140,155,175,1)', marginBottom: 4 }}>{sigEntry.signer}</div>}
+                                        {sigEntry.suspicious_path && <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, color: '#ffd60a', marginBottom: 4 }}>⚠ Suspicious path</div>}
+                                        {sigEntry.sha256 && <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, color: 'rgba(53,64,96,.6)', wordBreak: 'break-all', marginBottom: 8 }}>{sigEntry.sha256.slice(0, 32)}…</div>}
+                                        {sigEntry.vt_url && <a href={sigEntry.vt_url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, color: '#00e5ff' }}>VirusTotal →</a>}
+                                    </>) : <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, color: 'rgba(90,107,138,1)' }}>No data — POST /api/signatures/run</div>}
+                                </div>
+                            )}
+                            {decodedPS && (
+                                <div className="rh-al-card" style={{ background: 'rgba(0,229,255,.04)', padding: '16px 18px', border: '1px solid rgba(0,229,255,.2)', boxShadow: '0 4px 24px rgba(0,229,255,.05)', animation: 'rh-al-in .35s cubic-bezier(.16,1,.3,1) .1s both' }}>
+                                    <div className="rh-al-shimmer" style={{ background: 'linear-gradient(90deg,transparent,rgba(0,229,255,.06),transparent)' }} />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#00e5ff" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
+                                        <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: '#00e5ff' }}>Decoded Payload</span>
+                                    </div>
+                                    <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, color: '#00e5ff', lineHeight: 1.8, wordBreak: 'break-all', whiteSpace: 'pre-wrap', opacity: .9 }}>
+                                        {decodedPS.length > 300 ? decodedPS.slice(0, 300) + '…' : decodedPS}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ── IOC notes ── */}
+                        {alert.ioc_notes && alert.ioc_notes.toLowerCase() !== 'none' && (
+                            <div className="rh-al-card" style={{ background: 'rgba(255,214,10,.04)', padding: '14px 18px', border: '1px solid rgba(255,214,10,.18)', animation: 'rh-al-in .35s cubic-bezier(.16,1,.3,1) .12s both' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ffd60a" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                                    <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: '#ffd60a' }}>IOC Notes</span>
+                                </div>
+                                <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, color: 'rgba(192,200,224,.9)', lineHeight: 1.7 }}>{alert.ioc_notes}</div>
+                            </div>
+                        )}
+
+                        {/* ── MITRE ── */}
+                        {techniques.length > 0 && (
+                            <div className="rh-al-card" style={{ background: 'rgba(196,112,255,.04)', padding: '14px 18px', border: '1px solid rgba(196,112,255,.15)', animation: 'rh-al-in .35s cubic-bezier(.16,1,.3,1) .14s both' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c470ff" strokeWidth="2" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+                                    <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: '#c470ff' }}>MITRE ATT&CK</span>
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                                    {techniques.map((t, i) => (
+                                        <span key={t.id || t} title={t.name} style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, padding: '4px 10px', borderRadius: 5, background: 'rgba(196,112,255,.12)', color: '#c470ff', border: '1px solid rgba(196,112,255,.3)', animation: `rh-al-in .25s ease ${i * .05 + .14}s both`, cursor: 'default' }}>
+                                            {t.id || t}{t.name && <span style={{ color: 'rgba(196,112,255,.55)', marginLeft: 6, fontWeight: 400 }}>— {t.name}</span>}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── Chain visual ── */}
+                        {chain.length > 0 && (
+                            <div className="rh-al-card" style={{ background: 'rgba(13,17,30,.95)', padding: '16px 18px', border: '1px solid rgba(255,255,255,.07)', animation: 'rh-al-in .35s cubic-bezier(.16,1,.3,1) .16s both' }}>
+                                <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(53,64,96,.85)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 7 }}>
+                                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
+                                    Attack Chain
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    {chain.map((node, i) => {
+                                        const c = node.type === 'malicious' ? '#ff2055' : node.type === 'suspicious' ? '#ff7722' : '#00e5ff'
+                                        const isLast = i === chain.length - 1
+                                        return (
+                                            <div key={i} style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 20, flexShrink: 0, marginRight: 10 }}>
+                                                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: c, boxShadow: `0 0 8px ${c}80`, flexShrink: 0, marginTop: 2 }} />
+                                                    {!isLast && <div style={{ width: 1, flex: 1, background: 'rgba(255,255,255,.07)', minHeight: 16 }} />}
+                                                </div>
+                                                <div style={{ paddingBottom: isLast ? 0 : 12 }}>
+                                                    <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 11, color: c, fontWeight: 600 }}>{node.name}</span>
+                                                    <span style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, color: 'rgba(53,64,96,.7)', padding: '1px 5px', borderRadius: 3, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.06)', marginLeft: 8 }}>{node.source}</span>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── View full button ── */}
                         <button onClick={() => navigate(`/entries/${alert.entry_type}/${alert.id}`)}
                             style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'IBM Plex Mono', fontSize: 11, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', padding: '8px 16px', borderRadius: 6, border: '1px solid rgba(0,212,255,.4)', color: 'var(--cyan)', background: 'rgba(0,212,255,.06)', cursor: 'pointer' }}>
                             View Full Entry →
