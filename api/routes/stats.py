@@ -1,63 +1,91 @@
 """api/routes/stats.py — /api/health and /api/stats"""
 
+import sqlite3
 from datetime import datetime, timezone
 from fastapi import APIRouter
-from api.dependencies import get_db, DB_PATH
+from api.dependencies import DB_PATH
 
 router = APIRouter()
 
 
+def _conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 @router.get("/health")
 def health():
-    """Service and DB health check."""
     try:
-        conn = get_db()
+        conn = _conn()
         conn.execute("SELECT 1").fetchone()
         conn.close()
         db_ok = True
     except Exception:
         db_ok = False
-
     return {
         "status":  "ok" if db_ok else "degraded",
         "db":      "connected" if db_ok else "error",
         "db_path": DB_PATH,
-        "version": "1.0.0",
+        "version": "2.0.0",
     }
 
 
 @router.get("/stats")
 def get_stats():
-    """Aggregated dashboard numbers across all persistence types."""
-    conn = get_db()
+    conn = _conn()
     try:
-        def count(table: str, severity: str = None) -> int:
-            if severity:
-                return conn.execute(
-                    f"SELECT COUNT(*) FROM {table} WHERE severity=?",
-                    (severity,),
-                ).fetchone()[0]
-            return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        def count(table, where=None, params=()):
+            q = f"SELECT COUNT(*) FROM {table}"
+            if where:
+                q += f" WHERE {where}"
+            try:
+                return conn.execute(q, params).fetchone()[0]
+            except Exception:
+                return 0
 
-        def sev_counts(table: str) -> dict:
-            return {s: count(table, s) for s in ("critical", "high", "medium", "low")}
+        def sev_counts(table):
+            return {s: count(table, "severity=?", (s,))
+                    for s in ("critical", "high", "medium", "low")}
 
-        recent_24h = conn.execute("""
-            SELECT COUNT(*) FROM registry_entries
-            WHERE last_seen >= datetime('now', '-24 hours')
-        """).fetchone()[0]
+        reg = sev_counts("registry_entries")
+        tsk = sev_counts("task_entries")
+        svc = sev_counts("service_entries")
 
-        enriched = conn.execute(
-            "SELECT COUNT(*) FROM enrichment_results"
-        ).fetchone()[0]
+        chains   = count("attack_chains")
+        sysmon   = count("sysmon_process_events") + count("sysmon_registry_events")
+        proc4688 = count("process_events")
 
-        chains = conn.execute(
-            "SELECT COUNT(*) FROM attack_chains"
-        ).fetchone()[0]
+        bl_row = conn.execute(
+            "SELECT id FROM baselines ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        bl_id = bl_row[0] if bl_row else None
 
-        reg  = sev_counts("registry_entries")
-        tsk  = sev_counts("task_entries")
-        svc  = sev_counts("service_entries")
+        def new_count(table, et):
+            if bl_id is None:
+                return 0
+            try:
+                return conn.execute(f"""
+                    SELECT COUNT(*) FROM {table} t
+                    WHERE t.severity IN ('critical','high')
+                    AND NOT EXISTS (
+                        SELECT 1 FROM baseline_entries be
+                        WHERE be.baseline_id=? AND be.entry_type=? AND be.hash_id=t.hash_id
+                    )
+                """, (bl_id, et)).fetchone()[0]
+            except Exception:
+                return 0
+
+        new_reg = new_count("registry_entries", "registry")
+        new_tsk = new_count("task_entries", "task")
+        new_svc = new_count("service_entries", "service")
+
+        try:
+            top_score    = conn.execute("SELECT MAX(score) FROM threat_scores").fetchone()[0] or 0
+            scored_count = count("threat_scores")
+        except Exception:
+            top_score = 0
+            scored_count = 0
 
         return {
             "registry": reg,
@@ -70,16 +98,22 @@ def get_stats():
                 "critical": reg["critical"] + tsk["critical"] + svc["critical"],
                 "high":     reg["high"]     + tsk["high"]     + svc["high"],
             },
+            "new_since_baseline": {
+                "registry": new_reg,
+                "tasks":    new_tsk,
+                "services": new_svc,
+                "total":    new_reg + new_tsk + new_svc,
+            },
             "event_log": {
-                "process_events": count("process_events"),
-                "sysmon_events":  (count("sysmon_registry_events") +
-                                   count("sysmon_process_events")),
+                "process_events": proc4688,
+                "sysmon_events":  sysmon,
             },
             "enrichment": {
-                "enriched_entries": enriched,
                 "chains_built":     chains,
+                "enriched_entries": scored_count,
+                "top_score":        round(top_score, 1) if top_score else 0,
             },
-            "recent_24h":  recent_24h,
+            "recent_24h":  count("registry_entries", "last_seen >= datetime('now','-24 hours')"),
             "last_updated": datetime.now(tz=timezone.utc).isoformat(),
         }
     finally:

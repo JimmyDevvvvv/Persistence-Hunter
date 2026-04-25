@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
-    fetchAlerts, fetchChain, fetchScore, fetchAllScores,
+    fetchAlerts, fetchChain, fetchScore, fetchAllScores, fetchSignatures,
     scoreToSeverity, SCORE_LABEL, SCORE_COLOR,
 } from '../api/client'
 import { ProcessTree } from '../components/features/ProcessTree'
@@ -150,7 +150,7 @@ function TechBadge({ id, name }) {
 
 function AlertDetail({ alert }) {
     const navigate = useNavigate()
-    const [tab, setTab] = useState('chain')
+    const [tab, setTab] = useState('summary')
 
     const { data: chainData, isLoading: chainLoading } = useQuery({
         queryKey: ['chain', alert?.entry_type, alert?.id],
@@ -163,6 +163,13 @@ function AlertDetail({ alert }) {
         queryFn: () => fetchScore(alert.entry_type, alert.id),
         enabled: !!alert,
         retry: 1,
+    })
+
+    const { data: sigData } = useQuery({
+        queryKey: ['signatures'],
+        queryFn: () => fetchSignatures({ exe_only: true }),
+        staleTime: 5 * 60 * 1000,
+        enabled: alert?.entry_type === 'service',
     })
 
     if (!alert) return (
@@ -182,6 +189,23 @@ function AlertDetail({ alert }) {
     const chain = chainData?.chain || []
     const chainLine = chain.length > 0 ? chain.map(n => n.name).join(' → ') : (alert.ioc_notes || '')
 
+    const sigEntry = alert.entry_type === 'service'
+        ? (sigData?.results || []).find(r => r.service_name?.toLowerCase() === name?.toLowerCase())
+        : null
+
+    const decodedPS = (() => {
+        const m = (value || '').match(/-(?:EncodedCommand|enc?)\s+([A-Za-z0-9+/=]{8,})/i)
+        if (!m) return null
+        try {
+            const b64 = m[1].trim().padEnd(m[1].length + (4 - m[1].length % 4) % 4, '=')
+            const raw = atob(b64)
+            let str = ''
+            for (let i = 0; i < raw.length - 1; i += 2)
+                str += String.fromCharCode(raw.charCodeAt(i) | (raw.charCodeAt(i + 1) << 8))
+            return str.trim() || null
+        } catch { return null }
+    })()
+
     const anomalies = []
     if (chain.some(n => n.type === 'malicious')) anomalies.push('malicious_writer')
     const hasLolbin = chain.some(n =>
@@ -194,8 +218,9 @@ function AlertDetail({ alert }) {
     if (iocLower.includes('run key')) anomalies.push('autorun_key')
 
     const tabs = [
+        { key: 'summary', label: 'Summary' },
         { key: 'chain', label: 'Attack Chain', count: chain.length },
-        { key: 'intel', label: 'Intel', count: (alert.enrich_indicators || []).length },
+        { key: 'intel', label: 'Intel', count: (scoreData?.risk_indicators || []).length },
         { key: 'details', label: 'Details' },
     ]
 
@@ -288,7 +313,112 @@ function AlertDetail({ alert }) {
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+
+                {tab === 'summary' && (
+                    <div style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {/* Status */}
+                        <div style={{ padding: '12px 14px', borderRadius: 9, background: score >= 80 ? 'rgba(255,32,85,.06)' : score >= 60 ? 'rgba(255,119,34,.06)' : 'rgba(15,19,32,.9)', border: `1px solid ${score >= 80 ? 'rgba(255,32,85,.25)' : score >= 60 ? 'rgba(255,119,34,.2)' : 'rgba(255,255,255,.07)'}` }}>
+                            <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: score >= 80 ? '#ff2055' : score >= 60 ? '#ff7722' : '#ffd60a', marginBottom: 8 }}>
+                                {alert.severity?.toUpperCase()} PERSISTENCE — Score {score ?? '?'}
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontFamily: 'IBM Plex Mono', fontSize: 10, color: 'var(--text-muted)' }}>
+                                <span>Type <strong style={{ color: 'var(--cyan)' }}>{alert.entry_type}</strong></span>
+                                <span>Chain <strong style={{ color: 'var(--cyan)' }}>{chain.length} hops</strong></span>
+                                {alert.last_seen && <span>Seen <strong style={{ color: 'var(--text-secondary)' }}>{new Date(alert.last_seen).toLocaleString()}</strong></span>}
+                            </div>
+                        </div>
+
+                        {/* Signature — services */}
+                        {alert.entry_type === 'service' && (
+                            <div style={{ borderRadius: 9, background: 'rgba(13,17,30,.92)', border: `1px solid ${sigEntry?.sig_status === 'Valid' ? 'rgba(0,230,118,.15)' : sigEntry?.sig_status === 'NotSigned' ? 'rgba(255,32,85,.25)' : 'rgba(255,255,255,.07)'}`, overflow: 'hidden' }}>
+                                <div style={{ padding: '7px 13px', borderBottom: '1px solid rgba(255,255,255,.05)', fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(53,64,96,.85)' }}>🔐 Binary Signature</div>
+                                <div style={{ padding: '10px 13px', fontFamily: 'IBM Plex Mono', fontSize: 10 }}>
+                                    {sigEntry ? (<>
+                                        <div style={{ color: sigEntry.sig_status === 'Valid' ? '#00e676' : '#ff2055', marginBottom: 6 }}>
+                                            {sigEntry.sig_status === 'Valid' ? `✅ Signed — ${sigEntry.signer}` : sigEntry.sig_status === 'NotSigned' ? '❌ UNSIGNED' : sigEntry.sig_status === 'Missing' ? '👻 Binary not found' : sigEntry.sig_status}
+                                        </div>
+                                        {sigEntry.issuer && <div style={{ color: 'var(--text-muted)', fontSize: 9, marginBottom: 4 }}>Issuer: {sigEntry.issuer}</div>}
+                                        {sigEntry.suspicious_path && <div style={{ color: '#ffd60a', fontSize: 9, marginBottom: 4 }}>⚠ Suspicious path: {sigEntry.exe_path}</div>}
+                                        {sigEntry.sha256 && <div style={{ color: 'rgba(53,64,96,.7)', fontSize: 8, marginBottom: 6, wordBreak: 'break-all' }}>{sigEntry.sha256}</div>}
+                                        {sigEntry.vt_url && <a href={sigEntry.vt_url} target="_blank" rel="noopener noreferrer" style={{ color: '#00e5ff', fontSize: 9 }}>🔍 VirusTotal →</a>}
+                                    </>) : (
+                                        <div style={{ color: 'var(--text-muted)' }}>No signature data — POST /api/signatures/run</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Decoded PS */}
+                        {decodedPS && (
+                            <div style={{ borderRadius: 9, background: 'rgba(0,229,255,.04)', border: '1px solid rgba(0,229,255,.15)', overflow: 'hidden' }}>
+                                <div style={{ padding: '7px 13px', borderBottom: '1px solid rgba(0,229,255,.1)', fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: '#00e5ff' }}>🔓 Decoded PowerShell</div>
+                                <div style={{ padding: '10px 13px', fontFamily: 'IBM Plex Mono', fontSize: 10, color: '#00e5ff', lineHeight: 1.7, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>
+                                    {decodedPS.length > 400 ? decodedPS.slice(0, 400) + '…' : decodedPS}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* IOC */}
+                        {alert.ioc_notes && alert.ioc_notes.toLowerCase() !== 'none' && (
+                            <div style={{ padding: '10px 13px', borderRadius: 9, background: 'rgba(255,214,10,.04)', border: '1px solid rgba(255,214,10,.15)' }}>
+                                <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#ffd60a', marginBottom: 5 }}>⚠ IOC Notes</div>
+                                <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 10, color: 'rgba(192,200,224,.85)', lineHeight: 1.6 }}>{alert.ioc_notes}</div>
+                            </div>
+                        )}
+
+                        {/* MITRE */}
+                        {techniques.length > 0 && (
+                            <div style={{ padding: '10px 13px', borderRadius: 9, background: 'rgba(196,112,255,.04)', border: '1px solid rgba(196,112,255,.12)' }}>
+                                <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 8, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#c470ff', marginBottom: 8 }}>📌 MITRE ATT&CK</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    {techniques.map(t => (
+                                        <span key={t.id || t} title={t.name} style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'rgba(196,112,255,.1)', color: '#c470ff', border: '1px solid rgba(196,112,255,.25)' }}>
+                                            {t.id || t}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* View full */}
+                        <button onClick={() => navigate(`/entries/${alert.entry_type}/${alert.id}`)}
+                            style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'IBM Plex Mono', fontSize: 11, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', padding: '8px 16px', borderRadius: 6, border: '1px solid rgba(0,212,255,.4)', color: 'var(--cyan)', background: 'rgba(0,212,255,.06)', cursor: 'pointer' }}>
+                            View Full Entry →
+                        </button>
+                    </div>
+                )}
+
                 {tab === 'chain' && <ProcessTree chain={chain} loading={chainLoading} error={null} />}
+
+                {tab === 'intel' && (
+                    <div style={{ maxWidth: 560 }}>
+                        {(scoreData?.risk_indicators || []).length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)', fontFamily: 'IBM Plex Mono', fontSize: 12 }}>
+                                No risk indicators — run threat scorer to generate signals.
+                            </div>
+                        ) : (
+                            (scoreData?.risk_indicators || []).map((ind, i) => {
+                                const c = ind.severity === 'critical' ? 'var(--red)' : ind.severity === 'high' ? 'var(--orange)' : 'var(--yellow)'
+                                return (
+                                    <div key={i} style={{
+                                        padding: '12px 14px', marginBottom: 8, borderRadius: 9,
+                                        background: 'rgba(15,19,32,.9)', border: '1px solid rgba(255,255,255,.07)',
+                                        borderLeft: `3px solid ${c}`,
+                                        opacity: 0, transform: 'translateX(-8px)',
+                                        animation: `nip-in .28s cubic-bezier(.16,1,.3,1) ${i * 0.05}s forwards`,
+                                    }}>
+                                        <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', color: c, marginBottom: 5, display: 'flex', alignItems: 'center', gap: 7 }}>
+                                            <div style={{ width: 4, height: 4, borderRadius: '50%', background: c, boxShadow: `0 0 6px ${c}` }} />
+                                            {ind.type?.replace(/_/g, ' ') || 'risk'}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: 'rgba(140,155,175,1)', lineHeight: 1.55 }}>{ind.description}</div>
+                                    </div>
+                                )
+                            })
+                        )}
+                        <style>{`@keyframes nip-in{to{opacity:1;transform:translateX(0)}}`}</style>
+                    </div>
+                )}
 
                 {tab === 'details' && (
                     <div style={{ maxWidth: 600 }}>

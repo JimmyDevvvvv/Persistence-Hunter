@@ -210,7 +210,7 @@ export function Dashboard() {
                 <StatCard label="Sysmon Events" value={el.sysmon_events || 0} color="#00e676" sub="Event ID 1 + 13" />
                 <StatCard label="Process Events" value={el.process_events || 0} color="#00e676" sub="Event ID 4688" />
                 <StatCard label="Chains Built" value={enr.chains_built || 0} color="#00e5ff" sub="Attack chains" />
-                <StatCard label="Enriched Entries" value={enr.enriched_entries || 0} color="#c470ff" sub="File + threat intel" />
+                <StatCard label="Scored Entries" value={enr.enriched_entries || 0} color="#c470ff" sub="Threat scored" />
             </div>
 
             {/* Severity distribution — score-driven */}

@@ -97,7 +97,7 @@ function ScoreErrorBanner() {
   )
 }
 
-export function IntelPanel({ entryType, entryId, enrichment }) {
+export function IntelPanel({ entryType, entryId, entry }) {
   const MotionDiv = motion.div
 
   const {
@@ -110,24 +110,23 @@ export function IntelPanel({ entryType, entryId, enrichment }) {
     retry: 1,
   })
 
-  const mergedIndicators = useMemo(() => {
-    // Score indicators are the primary signal; enrichment is supplementary
-    const scoreInds = (scoreData?.risk_indicators || []).map(i => normalizeIndicator(i, 'score'))
-    const enrichInds = (enrichment?.risk_indicators || []).map(i => normalizeIndicator(i, 'enrich'))
+  // Derive display value from entry for PS decode / service name lookup
+  const value = entry?.value_data || entry?.command || entry?.binary_path || ''
+  const serviceName = entry?.service_name || entry?.name || ''
 
+  const mergedIndicators = useMemo(() => {
+    const scoreInds = (scoreData?.risk_indicators || []).map(i => normalizeIndicator(i, 'score'))
     const map = new Map()
-    // Add enrichment first so score entries overwrite on key collision
-    for (const ind of [...enrichInds, ...scoreInds]) {
+    for (const ind of scoreInds) {
       if (!ind.key || ind.key === '::') continue
       map.set(ind.key, ind)
     }
-
     return [...map.values()].sort((a, b) => {
       const sevDiff = sevRank(b.severity) - sevRank(a.severity)
       if (sevDiff !== 0) return sevDiff
       return (SOURCE_WEIGHT[b.source] ?? 0) - (SOURCE_WEIGHT[a.source] ?? 0)
     })
-  }, [enrichment, scoreData])
+  }, [scoreData])
 
   return (
     <>
@@ -144,14 +143,19 @@ export function IntelPanel({ entryType, entryId, enrichment }) {
       `}</style>
       <div className="rh-intel-grid">
 
-        {/* Left: enrichment — file intel, hashes, VT verdict */}
+        {/* Left: signature data for services, PS decode for registry/task */}
         <MotionDiv
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
           style={{ minWidth: 0 }}
         >
-          <EnrichmentPanel enrichment={enrichment} hideRisk />
+          <EnrichmentPanel
+            entryType={entryType}
+            serviceName={serviceName}
+            value={value}
+            hideRisk
+          />
         </MotionDiv>
 
         {/* Right: unified risk feed (score-first) + threat score widget */}
@@ -193,7 +197,7 @@ export function IntelPanel({ entryType, entryId, enrichment }) {
                     fontSize: 10, textAlign: 'center',
                   }}
                 >
-                  No signals yet — run enrichment and scoring.
+                  No signals yet — run the threat scorer to generate risk indicators.
                 </MotionDiv>
               ) : (
                 <MotionDiv

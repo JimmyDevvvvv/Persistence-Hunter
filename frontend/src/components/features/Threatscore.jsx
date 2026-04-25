@@ -2,7 +2,7 @@
 // Animated threat score ring + APT attribution panel
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fetchScore, triggerScores } from '../../api/client'
+import { fetchScore, runScorer } from '../../api/client'
 
 // ── APT group background knowledge ─────────────────────────────
 const APT_INTEL = {
@@ -327,7 +327,7 @@ export function ThreatScorePanel({ entryType, entryId, hideRiskIndicators = fals
     const handleRunScorer = async () => {
         setIsScoring(true)
         try {
-            await triggerScores()
+            await runScorer()
             await queryClient.invalidateQueries({ queryKey: ['score'] })
         } catch (e) {
             console.error('Failed to run scorer', e)

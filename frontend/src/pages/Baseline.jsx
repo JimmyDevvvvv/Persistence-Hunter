@@ -4,10 +4,10 @@ import { fetchBaselines, fetchDiff, createBaseline, deleteBaseline } from '../ap
 import { useNavigate } from 'react-router-dom'
 
 const SEVERITY_STYLES = {
-    critical: { bg: 'rgba(255,53,96,0.12)',  color: 'var(--red)',    border: 'rgba(255,53,96,0.35)'  },
-    high:     { bg: 'rgba(255,140,0,0.1)',   color: 'var(--orange)', border: 'rgba(255,140,0,0.3)'   },
-    medium:   { bg: 'rgba(245,197,24,0.08)', color: 'var(--yellow)', border: 'rgba(245,197,24,0.25)' },
-    low:      { bg: 'rgba(0,229,153,0.08)',  color: 'var(--green)',  border: 'rgba(0,229,153,0.25)'  },
+    critical: { bg: 'rgba(255,53,96,0.12)', color: 'var(--red)', border: 'rgba(255,53,96,0.35)' },
+    high: { bg: 'rgba(255,140,0,0.1)', color: 'var(--orange)', border: 'rgba(255,140,0,0.3)' },
+    medium: { bg: 'rgba(245,197,24,0.08)', color: 'var(--yellow)', border: 'rgba(245,197,24,0.25)' },
+    low: { bg: 'rgba(0,229,153,0.08)', color: 'var(--green)', border: 'rgba(0,229,153,0.25)' },
 }
 
 function SevBadge({ severity }) {
@@ -27,7 +27,7 @@ function SevBadge({ severity }) {
 
 export function Baseline() {
     const navigate = useNavigate()
-    const qc       = useQueryClient()
+    const qc = useQueryClient()
 
     const { data: blData } = useQuery({
         queryKey: ['baselines'],
@@ -52,9 +52,9 @@ export function Baseline() {
         onSuccess: () => qc.invalidateQueries(['baselines']),
     })
 
-    const baselines     = blData?.baselines || []
-    const newEntries    = diff?.new || []
-    const removedEntries= diff?.removed || []
+    const baselines = blData?.baselines || []
+    const newEntries = diff?.new_entries || []
+    const removedEntries = diff?.removed_entries || []
 
     return (
         <div className="space-y-6 animate-slide-up">
@@ -124,7 +124,7 @@ export function Baseline() {
                             {newEntries.map((e, i) => (
                                 <div
                                     key={i}
-                                    onClick={() => navigate(`/entries/${e.type}/${e.id}`)}
+                                    onClick={() => navigate(`/entries/${e.entry_type || e.type}/${e.id}`)}
                                     className={`flex items-center gap-3 px-5 py-2.5 cursor-pointer table-row stagger-${Math.min(i + 1, 5)}`}
                                     style={{ borderBottom: i < newEntries.length - 1 ? '1px solid var(--bg-border)' : 'none' }}
                                 >

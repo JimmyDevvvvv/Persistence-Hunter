@@ -18,7 +18,6 @@ export function ScanButton({ onComplete, label = 'SCAN', hours = 24 }) {
             const { job_id } = await triggerScan({
                 hours,
                 entry_types: ['registry', 'task', 'service'],
-                enrich: false,
             })
             const interval = setInterval(async () => {
                 const status = await fetchScanStatus(job_id)
