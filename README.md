@@ -369,5 +369,4 @@ cmd /c "sc delete EvilSvc"
 MIT — use freely, attribution appreciated.
 
 ---
-
-*Built as a hackathon project. Genuinely useful for IR triage, SOC analysis, and endpoint hardening audits.*
+ 
