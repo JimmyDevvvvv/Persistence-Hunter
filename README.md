@@ -290,7 +290,7 @@ The collectors are tightly coupled to Windows event log structure. Running this 
 
 Service enumeration and certain event log queries require admin rights. Running without elevation will produce incomplete results without a clear error — some queries will silently return nothing.
 
-There is no authentication on the API. Do not expose port 8000 to a network without a reverse proxy in front of it.
+Do not expose port 8000 to a network without a reverse proxy in front of it.
 
 Signature checking runs a PowerShell subprocess per binary. On a system with several hundred services this takes a few minutes. It is not designed for real-time use.
 
