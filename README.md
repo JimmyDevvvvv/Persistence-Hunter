@@ -95,8 +95,6 @@ ps_decode.py           PS -enc decoder
 scan_summary.py        CLI cross-collector summary
 check_signatures.py    CLI binary signature checker
 threat_scorer.py       scoring engine
-fix_db.py              creates baseline tables in reghunt.db
-reghunt.db             SQLite database, auto-created on first run
 ```
 
 ---
