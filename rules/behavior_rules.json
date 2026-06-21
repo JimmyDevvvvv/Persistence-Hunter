@@ -1,0 +1,62 @@
+[
+  {
+    "id": "BEH-001",
+    "name": "Info Stealer Credential Access Chain",
+    "type": "correlation",
+    "window_seconds": 30,
+    "severity": "critical",
+    "mitre": ["T1547.001", "T1055", "T1555.003"],
+    "description": "Unsigned process from AppData/Temp writes a Run key AND drops an executable within 30 seconds — textbook commodity stealer persistence chain (Lumma, Redline, Stealc, Vidar).",
+    "events": [
+      {
+        "event": "process_create",
+        "role": "origin",
+        "filters": {
+          "path_contains": ["\\appdata\\", "\\temp\\", "c:\\users\\public"]
+        }
+      },
+      {
+        "event": "registry_write",
+        "role": "persistence",
+        "filters": {
+          "path_contains": ["currentversion\\run"],
+          "same_process_tree": true
+        }
+      },
+      {
+        "event": "file_create",
+        "role": "dropper",
+        "filters": {
+          "path_contains": ["\\appdata\\", "\\temp\\", "c:\\users\\public"],
+          "same_process_tree": true
+        }
+      }
+    ]
+  },
+  {
+    "id": "BEH-002",
+    "name": "Suspicious Process Writes Run Key",
+    "type": "correlation",
+    "window_seconds": 60,
+    "severity": "high",
+    "mitre": ["T1547.001"],
+    "description": "A process launched from a suspicious location (AppData, Temp, Public) wrote a persistence Run key — lower confidence than BEH-001 since the full stealer chain was not observed.",
+    "events": [
+      {
+        "event": "process_create",
+        "role": "origin",
+        "filters": {
+          "path_contains": ["\\appdata\\", "\\temp\\", "c:\\users\\public"]
+        }
+      },
+      {
+        "event": "registry_write",
+        "role": "persistence",
+        "filters": {
+          "path_contains": ["currentversion\\run"],
+          "same_process_tree": true
+        }
+      }
+    ]
+  }
+]

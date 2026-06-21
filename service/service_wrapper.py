@@ -35,13 +35,14 @@ import win32serviceutil
 # Paths — resolve relative to the installed app directory
 # ---------------------------------------------------------------------------
 
-BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR    = os.path.dirname(BASE_DIR)
-LOG_DIR     = os.path.join(os.environ.get("PROGRAMDATA", "C:\\ProgramData"),
-                           "PersistenceHunter", "logs")
-LOG_FILE    = os.path.join(LOG_DIR, "service.log")
-API_SCRIPT  = os.path.join(ROOT_DIR, "api", "main.py")
-PYTHON_EXE  = sys.executable
+BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR        = os.path.dirname(BASE_DIR)
+LOG_DIR         = os.path.join(os.environ.get("PROGRAMDATA", "C:\\ProgramData"),
+                               "PersistenceHunter", "logs")
+LOG_FILE        = os.path.join(LOG_DIR, "service.log")
+API_SCRIPT      = os.path.join(ROOT_DIR, "api", "main.py")
+MONITOR_SCRIPT  = os.path.join(ROOT_DIR, "monitors", "etw_monitor.py")
+PYTHON_EXE      = sys.executable
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -106,6 +107,7 @@ class PersistenceHunterService(win32serviceutil.ServiceFramework):
         subsystems = [
             ("API",     self._run_api),
             ("Tray",    self._run_tray),
+            ("Monitor", self._run_monitor),
         ]
         for name, target in subsystems:
             t = threading.Thread(target=target, name=name, daemon=True)
@@ -170,6 +172,26 @@ class PersistenceHunterService(win32serviceutil.ServiceFramework):
         except Exception as e:
             log.error(f"Tray failed to start: {e}")
 
+    def _run_monitor(self):
+        """Launch the ETW real-time monitor (separate process for COM/WMI isolation)."""
+        cmd = [PYTHON_EXE, MONITOR_SCRIPT]
+        log.info(f"Starting ETW monitor: {' '.join(cmd)}")
+        # Give the API 3 s to bind before the monitor starts trying to POST alerts
+        time.sleep(3)
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=ROOT_DIR,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            self._procs.append(proc)
+            _, stderr = proc.communicate()
+            if stderr:
+                log.error(f"Monitor stderr: {stderr.decode(errors='replace')}")
+        except Exception as e:
+            log.error(f"Monitor failed to start: {e}")
+
 
 # ---------------------------------------------------------------------------
 # CLI helper — called by installer
@@ -219,13 +241,14 @@ if __name__ == "__main__":
         # Run subsystems directly — bypasses ServiceFramework which
         # requires a real Windows SCM context to initialise
         print("[DEBUG] Running Persistence Hunter in foreground mode")
-        print(f"[DEBUG] API  → http://127.0.0.1:8000")
-        print(f"[DEBUG] Tray → system tray (bottom right)")
+        print(f"[DEBUG] API     -> http://127.0.0.1:8000")
+        print(f"[DEBUG] Tray    -> system tray (bottom right)")
+        print(f"[DEBUG] Monitor -> ETW real-time watcher (registry / process / file)")
         print(f"[DEBUG] Press Ctrl+C to stop\n")
 
         procs: list[subprocess.Popen] = []
 
-        # Start FastAPI
+        # 1. Start FastAPI
         api_cmd = [
             PYTHON_EXE, "-m", "uvicorn",
             "api.main:app",
@@ -237,10 +260,10 @@ if __name__ == "__main__":
         api_proc = subprocess.Popen(api_cmd, cwd=ROOT_DIR)
         procs.append(api_proc)
 
-        # Give API a moment to bind
+        # Give API a moment to bind before dependents start
         time.sleep(2)
 
-        # Start tray
+        # 2. Start tray
         tray_script = os.path.join(BASE_DIR, "tray.py")
         print(f"[DEBUG] Starting tray...")
         tray_proc = subprocess.Popen(
@@ -248,7 +271,15 @@ if __name__ == "__main__":
         )
         procs.append(tray_proc)
 
-        print(f"[DEBUG] All subsystems running. Open http://127.0.0.1:8000 in your browser.")
+        # 3. Start ETW monitor (needs API up first)
+        print(f"[DEBUG] Starting ETW monitor...")
+        monitor_proc = subprocess.Popen(
+            [PYTHON_EXE, MONITOR_SCRIPT], cwd=ROOT_DIR
+        )
+        procs.append(monitor_proc)
+
+        print(f"\n[DEBUG] All subsystems running.")
+        print(f"[DEBUG] Open http://127.0.0.1:8000 in your browser.\n")
 
         try:
             while True:
