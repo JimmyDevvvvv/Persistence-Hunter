@@ -75,7 +75,7 @@ def create_job() -> ScanJob:
 
 def _run_threat_scorer(db_path: str) -> int:
     try:
-        from threat_scorer import score_all
+        from core.threat_scorer import score_all
         return score_all(verbose=False)
     except Exception as e:
         print(f"[scan_worker] threat_scorer failed: {e}")

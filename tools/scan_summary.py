@@ -102,7 +102,7 @@ def format_chain_summary(chain):
 def decode_ps_inline(cmdline):
     """Try to decode PS -enc payload."""
     try:
-        from ps_decode import decode_ps_command, format_decoded
+        from tools.ps_decode import decode_ps_command, format_decoded
         decoded = decode_ps_command(cmdline or "")
         if decoded:
             return format_decoded(decoded, max_len=120)
@@ -320,7 +320,7 @@ def main():
 
         print(f"\n  {bold('Next steps:')}")
         print(f"  1. Run --chain-all on flagged collectors to see full attack chains")
-        print(f"  2. Run check_signatures.py --unsigned-only for binary verification")
+        print(f"  2. Run tools/check_signatures.py --unsigned-only for binary verification")
         if any(
             "-enc" in (e.get("value_data","") or e.get("command","")).lower()
             for e in task_entries + reg_entries

@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 DB_PATH  = "reghunt.db"
-SIG_PATH = Path(__file__).parent / "apt_signatures.json"
+SIG_PATH = Path(__file__).parent.parent / "rules" / "apt_signatures.json"
 
 # ---------------------------------------------------------------------------
 # Score weights — positive = more suspicious, negative = more trusted
@@ -52,6 +52,7 @@ WEIGHTS = {
     "signed_system32_binary":    -20,   # signed binary in System32 = likely legit
     "known_vendor_binary":       -15,   # recognised software vendor
     "program_files_binary":      -10,   # installed to Program Files properly
+    "legit_appdata_binary":      -10,   # binary inside a known app's AppData dir (Squirrel etc.)
 
     # Chain properties
     "written_by_lolbin":         +25,
@@ -142,6 +143,46 @@ LEGIT_APPDATA_APPS = {
     # Password managers (legit)
     "1password.exe", "bitwarden.exe", "keepass.exe", "lastpass.exe",
 }
+
+# ---------------------------------------------------------------------------
+# Known-legitimate AppData parent directories (Squirrel + non-admin installs)
+# Binary inside \AppData\Local\Discord\, \AppData\Local\Programs\Notion\, etc.
+# is almost certainly legitimate — Update.exe is the Squirrel self-updater.
+# ---------------------------------------------------------------------------
+LEGIT_APPDATA_DIRS = {
+    # Squirrel self-updating apps (AppData\Local\<App>\Update.exe)
+    "discord", "slack", "teams", "notion", "spotify",
+    "telegram desktop", "signal", "whatsapp", "skype", "zoom",
+    "github desktop", "gitkraken", "sourcetree", "cursor",
+    "figma", "linear", "loom", "obsidian", "logseq",
+    # AppData\Local\Programs\ — standard non-admin install prefix
+    "programs",
+    # Cloud sync agents
+    "microsoft", "onedrive", "dropbox", "box", "mega",
+    # Browsers / browser updaters
+    "google", "brave-browser", "vivaldi", "opera",
+    # Password managers
+    "1password", "bitwarden",
+    # Remote access
+    "parsec", "anydesk",
+}
+
+
+import re as _re
+
+def _legit_appdata_dir(value: str) -> str:
+    """
+    Extract the first-level subdirectory under AppData from a binary path.
+    Returns the dir name lowercased, or '' if the path is not under AppData.
+
+    Examples:
+      C:\\Users\\x\\AppData\\Local\\Discord\\Update.exe      -> "discord"
+      C:\\Users\\x\\AppData\\Local\\Programs\\Notion\\...    -> "programs"
+      C:\\Windows\\System32\\svchost.exe                      -> ""
+    """
+    m = _re.search(r'\\appdata\\(?:local|roaming)\\([^\\]+)\\', value, _re.IGNORECASE)
+    return m.group(1).lower() if m else ""
+
 
 # ---------------------------------------------------------------------------
 # System task path prefixes — skip APT signature matching for these
@@ -300,13 +341,20 @@ def match_apt_signatures(
     _bin     = os.path.basename(
         _parts[1] if len(_parts) > 1 else (_parts[0] if _parts else "")
     ).lower()
-    is_legit = _bin in LEGIT_APPDATA_APPS
+    is_legit          = _bin in LEGIT_APPDATA_APPS
+    is_legit_appdata  = _legit_appdata_dir(value) in LEGIT_APPDATA_DIRS
 
     chain_names  = [n.get("name", "").lower() for n in chain]
     all_cmdlines = " ".join((n.get("cmdline") or "").lower() for n in chain)
 
     for sig in sigs:
         if is_legit and sig.get("id") in ("APT-SIG-007",):
+            continue
+        # Skip stealer signatures for binaries inside known-legitimate AppData dirs.
+        # Squirrel-pattern apps (Discord, Slack, Notion …) all use Update.exe in
+        # \AppData\Local\<App>\ — generic path/name patterns would otherwise always
+        # fire on these.
+        if is_legit_appdata and sig.get("id", "").startswith("STL-SIG-"):
             continue
 
         matched_reasons: List[str] = []
@@ -348,11 +396,14 @@ def match_apt_signatures(
                 continue
 
         # ── name_pattern ─────────────────────────────────────────────────
+        # Match on entry name or the extracted binary filename — NOT the full
+        # value string. Checking the full path caused "update" to match
+        # \Discord\Update.exe even when the entry name was "Discord".
         name_pat = sig.get("name_pattern", [])
         if name_pat:
             matched_name = False
             for pat in name_pat:
-                if pat.lower() in name or pat.lower() in value:
+                if pat.lower() in name or pat.lower() in _bin:
                     matched_reasons.append(f"name matches '{pat}'")
                     matched_name = True
                     break
@@ -437,6 +488,9 @@ def score_entry(
         _parts[1] if len(_parts) > 1 else (_parts[0] if _parts else "")
     ).lower()
 
+    _appdata_dir      = _legit_appdata_dir(value)
+    _is_legit_appdata = _appdata_dir in LEGIT_APPDATA_DIRS
+
     if r"\windows\temp" in value or (r"\temp\\" in value and
                                       r"\appdata\local\temp" not in value):
         add("temp_path", WEIGHTS["temp_path"],
@@ -446,7 +500,8 @@ def score_entry(
             "description": f"Executable in Temp directory: {value[:60]}",
         })
 
-    elif r"\appdata\roaming" in value and _bin not in LEGIT_APPDATA_APPS:
+    elif r"\appdata\roaming" in value and _bin not in LEGIT_APPDATA_APPS \
+            and not _is_legit_appdata:
         add("appdata_path", WEIGHTS["appdata_path"],
             "Binary in AppData\\Roaming — non-admin persistence used by malware")
         risk_indicators.append({
@@ -464,9 +519,13 @@ def score_entry(
         })
 
     elif r"\program files" in value or r"\windows\system32" in value:
-        # FIX: Negative weight for properly installed binaries
         add("program_files_binary", WEIGHTS["program_files_binary"],
             "Binary in Program Files or System32 — expected install location")
+
+    elif _is_legit_appdata:
+        add("legit_appdata_binary", WEIGHTS["legit_appdata_binary"],
+            f"Binary inside known-legitimate app directory: \\{_appdata_dir}\\ "
+            "(Squirrel / non-admin install)")
 
     # ── 3. Name signals ──────────────────────────────────────────────────
     for masq in MASQUERADE_NAMES:
@@ -481,7 +540,8 @@ def score_entry(
 
     # NEW: Commodity stealer naming pattern + suspicious path combo
     if any(pat in name for pat in STEALER_NAME_PATTERNS):
-        if any(p in value for p in [r"\appdata", r"\temp", r"\users\public"]):
+        if any(p in value for p in [r"\appdata", r"\temp", r"\users\public"]) \
+                and not _is_legit_appdata:
             add("stealer_name_pattern", WEIGHTS["stealer_name_pattern"],
                 "Generic name (update/helper/host) combined with suspicious "
                 "path — common commodity stealer pattern")
@@ -704,11 +764,14 @@ def score_entry(
 def _load_enrichment(
     conn: sqlite3.Connection, entry_type: str, entry_id: int
 ) -> Optional[Dict]:
-    row = conn.execute("""
-        SELECT * FROM enrichment_results
-        WHERE  entry_type = ? AND entry_id = ?
-    """, (entry_type, entry_id)).fetchone()
-    return dict(row) if row else None
+    try:
+        row = conn.execute("""
+            SELECT * FROM enrichment_results
+            WHERE  entry_type = ? AND entry_id = ?
+        """, (entry_type, entry_id)).fetchone()
+        return dict(row) if row else None
+    except Exception:
+        return None
 
 
 def _load_chain(
@@ -754,7 +817,12 @@ def score_all(db_path: str = DB_PATH, verbose: bool = True) -> int:
     total_scored = 0
 
     for entry_type, table, name_col in tables:
-        rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+        try:
+            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+        except Exception:
+            if verbose:
+                print(f"  [!] Table {table} not found — skipping")
+            continue
         for row in rows:
             entry              = dict(row)
             entry["entry_type"] = entry_type
@@ -788,7 +856,7 @@ def score_all(db_path: str = DB_PATH, verbose: bool = True) -> int:
             if verbose:
                 name    = entry.get(name_col, "?")
                 apts    = [m["name"] for m in result["apt_matches"]]
-                apt_str = f" → APT: {', '.join(apts[:2])}" if apts else ""
+                apt_str = f" -> APT: {', '.join(apts[:2])}" if apts else ""
                 print(f"  [{result['score']:3d}] [{entry_type:8s}] "
                       f"{name[:40]}{apt_str}")
 
@@ -856,19 +924,22 @@ def print_summary(db_path: str = DB_PATH, top_n: int = 15) -> None:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
-    rows = conn.execute("""
-        SELECT ts.entry_type, ts.entry_id, ts.score, ts.apt_json,
-               COALESCE(r.name, t.task_name, s.service_name, '?') AS name
-        FROM   threat_scores ts
-        LEFT   JOIN registry_entries r
-               ON ts.entry_type='registry' AND ts.entry_id=r.id
-        LEFT   JOIN task_entries t
-               ON ts.entry_type='task'     AND ts.entry_id=t.id
-        LEFT   JOIN service_entries s
-               ON ts.entry_type='service'  AND ts.entry_id=s.id
-        ORDER  BY ts.score DESC
-        LIMIT  ?
-    """, (top_n,)).fetchall()
+    try:
+        rows = conn.execute("""
+            SELECT ts.entry_type, ts.entry_id, ts.score, ts.apt_json,
+                   COALESCE(r.name, t.task_name, s.service_name, '?') AS name
+            FROM   threat_scores ts
+            LEFT   JOIN registry_entries r
+                   ON ts.entry_type='registry' AND ts.entry_id=r.id
+            LEFT   JOIN task_entries t
+                   ON ts.entry_type='task'     AND ts.entry_id=t.id
+            LEFT   JOIN service_entries s
+                   ON ts.entry_type='service'  AND ts.entry_id=s.id
+            ORDER  BY ts.score DESC
+            LIMIT  ?
+        """, (top_n,)).fetchall()
+    except Exception:
+        rows = []
     conn.close()
 
     print(f"\n{'='*65}")

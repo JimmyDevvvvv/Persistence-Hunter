@@ -18,10 +18,8 @@ from api.routes.scores import router as scores_router
 async def lifespan(app: FastAPI):
     """Ensure all required DB tables exist before serving requests."""
     try:
-        from enrichment.enrichment_manager import _init_enrichment_table
-        from enrichment.baseline import BaselineManager
-        _init_enrichment_table(DB_PATH)
-        BaselineManager(DB_PATH)
+        from collector.base_collector import BaseCollector
+        BaseCollector(db_path=DB_PATH).close()
     except Exception as exc:
         print(f"[!] Startup init warning: {exc}")
     yield

@@ -65,7 +65,7 @@ def get_score(entry_type: str, entry_id: int):
 def run_scorer():
     """Trigger threat scoring for all entries."""
     try:
-        from threat_scorer import score_all
+        from core.threat_scorer import score_all
         count = score_all(verbose=False)
         return {"status": "done", "scored": count}
     except Exception as e:

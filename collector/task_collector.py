@@ -770,7 +770,7 @@ if __name__ == "__main__":
         print("[*] Building chains for " + str(len(rows)) + " High/Critical tasks...")
         from registry_collector import format_chain_node
         try:
-            from ps_decode import decode_ps_command, format_decoded
+            from tools.ps_decode import decode_ps_command, format_decoded
         except ImportError:
             decode_ps_command = lambda x: None
             format_decoded = lambda x: x or ""
@@ -808,7 +808,7 @@ if __name__ == "__main__":
     if getattr(args, 'json', False):
         import json as _json
         try:
-            from ps_decode import decode_ps_command, format_decoded
+            from tools.ps_decode import decode_ps_command, format_decoded
         except ImportError:
             decode_ps_command = lambda x: None
             format_decoded = lambda x: x or ""

@@ -16,9 +16,7 @@ def _conn():
 
 def _decode_ps(cmdline: str):
     try:
-        import sys, os
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        from ps_decode import decode_ps_command, format_decoded
+        from tools.ps_decode import decode_ps_command, format_decoded
         decoded = decode_ps_command(cmdline or "")
         return format_decoded(decoded, max_len=200) if decoded else None
     except Exception:
