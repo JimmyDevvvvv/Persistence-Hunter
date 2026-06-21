@@ -1,0 +1,98 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "build": {
+    "beforeDevCommand":   "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devPath":            "http://localhost:5173",
+    "distDir":            "../dist"
+  },
+  "package": {
+    "productName":  "Persistence Hunter",
+    "version":      "0.2.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "shell": {
+        "all":   false,
+        "open":  true
+      },
+      "notification": {
+        "all":  false
+      },
+      "globalShortcut": {
+        "all": false
+      },
+      "http": {
+        "all":    true,
+        "scope":  ["http://127.0.0.1:8000/**"]
+      }
+    },
+    "bundle": {
+      "active":      true,
+      "category":    "Security",
+      "copyright":   "MIT Licence",
+      "deb":         { "depends": [] },
+      "externalBin": [],
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "identifier":      "io.github.jimmydevvvvv.persistence-hunter",
+      "longDescription": "Open source Windows security software that protects against malware persistence and credential theft.",
+      "macOS":           { "entitlements": null, "exceptionDomain": "" },
+      "resources":       [],
+      "shortDescription":"Real-time malware persistence and session theft protection",
+      "targets":         "all",
+      "windows": {
+        "certificateThumbprint":  null,
+        "digestAlgorithm":        "sha256",
+        "timestampUrl":           "",
+        "wix":                    null,
+        "nsis": {
+          "installMode":          "currentUser",
+          "languages":            ["English"],
+          "displayLanguageSelector": false
+        }
+      }
+    },
+    "security": {
+      "csp": "default-src 'self'; connect-src http://127.0.0.1:8000; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    },
+    "systemTray": {
+      "iconPath":      "icons/tray-clean.png",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false
+    },
+    "updater": {
+      "active":    false,
+      "endpoints": [],
+      "dialog":    false,
+      "pubkey":    ""
+    },
+    "windows": [
+      {
+        "title":           "Persistence Hunter",
+        "label":           "main",
+        "width":           900,
+        "height":          640,
+        "minWidth":        760,
+        "minHeight":       540,
+        "resizable":       true,
+        "fullscreen":      false,
+        "alwaysOnTop":     false,
+        "decorations":     true,
+        "center":          true,
+        "skipTaskbar":     false,
+        "visible":         true,
+        "fileDropEnabled": false,
+        "theme":           "Dark",
+        "backgroundColor": "#0f1117",
+        "url":             "index.html"
+      }
+    ]
+  }
+}

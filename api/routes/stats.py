@@ -118,3 +118,67 @@ def get_stats():
         }
     finally:
         conn.close()
+
+@router.get("/status")
+def get_status():
+    conn = _conn()
+    try:
+        # Check if threat_scores table exists yet
+        has_scores = conn.execute("""
+            SELECT COUNT(*) FROM sqlite_master 
+            WHERE type='table' AND name='threat_scores'
+        """).fetchone()[0] > 0
+
+        if has_scores:
+            def score_count(min_s, max_s):
+                return conn.execute(
+                    "SELECT COUNT(*) FROM threat_scores WHERE score >= ? AND score < ?",
+                    (min_s, max_s)
+                ).fetchone()[0]
+            counts = {
+                "critical": score_count(80, 101),
+                "high":     score_count(60, 80),
+                "medium":   score_count(35, 60),
+                "low":      score_count(0,  35),
+            }
+            last_scan = conn.execute(
+                "SELECT MAX(scored_at) FROM threat_scores"
+            ).fetchone()[0]
+        else:
+            # No scan run yet — fall back to static severity from entry tables
+            def sev(s):
+                total = 0
+                for t in ("registry_entries", "task_entries", "service_entries"):
+                    try:
+                        total += conn.execute(
+                            f"SELECT COUNT(*) FROM {t} WHERE severity=?", (s,)
+                        ).fetchone()[0]
+                    except Exception:
+                        pass
+                return total
+            counts   = {s: sev(s) for s in ("critical", "high", "medium", "low")}
+            last_scan = None
+
+    finally:
+        conn.close()
+
+    if counts["critical"] > 0:
+        n = counts["critical"]
+        status, msg = "danger", f"{n} critical threat{'s' if n > 1 else ''} detected."
+    elif counts["high"] > 0:
+        n = counts["high"]
+        status, msg = "warning", f"{n} suspicious item{'s' if n > 1 else ''} found."
+    elif counts["medium"] > 0:
+        n = counts["medium"]
+        status, msg = "notice", f"{n} unusual item{'s' if n > 1 else ''} worth reviewing."
+    else:
+        status, msg = "clean", "No threats detected. Your system looks clean."
+
+    return {
+        "status":         status,
+        "status_message": msg,
+        "scanning":       False,
+        "counts":         counts,
+        "last_scan":      last_scan,
+        "rules_version":  "v1.0",
+    }        

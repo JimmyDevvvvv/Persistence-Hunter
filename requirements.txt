@@ -14,3 +14,24 @@ python-evtx==0.7.4  # Alternative to pywin32 for .evtx file parsing
 
 # Utilities
 colorama==0.4.6     # Colored CLI output on Windows
+
+# ── Existing (Phase 1) ────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+python-multipart
+
+# ── Phase 2: Windows service ───────────────────────────────────────────────
+pywin32          # Windows service registration (win32serviceutil)
+
+# ── Phase 2: System tray ──────────────────────────────────────────────────
+pystray          # Cross-platform system tray
+Pillow           # PIL — dynamic icon rendering
+
+# ── Phase 2: Toast notifications ──────────────────────────────────────────
+winotify         # Native Windows toast notifications
+
+# ── Phase 2: API calls from tray ──────────────────────────────────────────
+requests         # Tray polls the local API for status
+
+# ── Phase 3 (install now, use later) ──────────────────────────────────────
+etw              # Event Tracing for Windows — real-time monitoring
