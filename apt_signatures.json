@@ -1,278 +1,348 @@
 [
-    {
-        "id": "APT-SIG-001",
-        "name": "Accessibility Tool IFEO Hijack",
-        "apt_groups": [
-            "APT41",
-            "FIN7",
-            "Lazarus"
-        ],
-        "description": "Attacker sets a debugger key on accessibility tools (sethc, magnify, osk, narrator) via reg.exe to gain SYSTEM shell on logon screen.",
-        "chain_pattern": [
-            "reg.exe"
-        ],
-        "target_pattern": [
-            "ifeo",
-            "image file execution",
-            "debugger"
-        ],
-        "mitre": [
-            "T1546.012"
-        ],
-        "severity_boost": 35,
-        "confidence": "high"
-    },
-    {
-        "id": "APT-SIG-002",
-        "name": "PowerShell Encoded Command Persistence",
-        "apt_groups": [
-            "APT29",
-            "APT32",
-            "Lazarus",
-            "FIN7"
-        ],
-        "description": "Persistence entry uses PowerShell with encoded/obfuscated command — classic fileless technique used across many APT campaigns.",
-        "chain_pattern": [
-            "powershell.exe"
-        ],
-        "value_pattern": [
-            "-enc",
-            "-encodedcommand",
-            "frombase64string"
-        ],
-        "mitre": [
-            "T1059.001",
-            "T1027",
-            "T1547.001"
-        ],
-        "severity_boost": 30,
-        "confidence": "high"
-    },
-    {
-        "id": "APT-SIG-003",
-        "name": "LOLBin Chain Persistence (Python/Script to reg.exe)",
-        "apt_groups": [
-            "APT29",
-            "Sandworm",
-            "FIN6"
-        ],
-        "description": "Scripting engine (Python, Node, PowerShell) spawns reg.exe or schtasks to establish persistence — common in red team frameworks and APT tooling.",
-        "chain_pattern": [
-            "python",
-            "node.exe",
-            "wscript.exe",
-            "cscript.exe"
-        ],
-        "child_pattern": [
-            "reg.exe",
-            "schtasks.exe",
-            "sc.exe"
-        ],
-        "mitre": [
-            "T1059.006",
-            "T1053.005",
-            "T1112"
-        ],
-        "severity_boost": 25,
-        "confidence": "medium"
-    },
-    {
-        "id": "APT-SIG-004",
-        "name": "PowerShell to schtasks Persistence",
-        "apt_groups": [
-            "APT29",
-            "APT41",
-            "Cobalt Group"
-        ],
-        "description": "PowerShell spawns schtasks.exe to create a scheduled task — extremely common in Cobalt Strike post-exploitation and APT29 tradecraft.",
-        "chain_pattern": [
-            "powershell.exe"
-        ],
-        "child_pattern": [
-            "schtasks.exe"
-        ],
-        "mitre": [
-            "T1059.001",
-            "T1053.005"
-        ],
-        "severity_boost": 25,
-        "confidence": "high"
-    },
-    {
-        "id": "APT-SIG-005",
-        "name": "cmd.exe to sc.exe Service Installation",
-        "apt_groups": [
-            "FIN7",
-            "APT41",
-            "Lazarus"
-        ],
-        "description": "cmd.exe spawns sc.exe to install a service — used for persistence and privilege escalation by multiple APT groups.",
-        "chain_pattern": [
-            "cmd.exe"
-        ],
-        "child_pattern": [
-            "sc.exe"
-        ],
-        "mitre": [
-            "T1059.003",
-            "T1543.003"
-        ],
-        "severity_boost": 20,
-        "confidence": "medium"
-    },
-    {
-        "id": "APT-SIG-006",
-        "name": "Hidden PowerShell Window Scheduled Task",
-        "apt_groups": [
-            "APT29",
-            "APT32",
-            "Kimsuky"
-        ],
-        "description": "Scheduled task runs PowerShell with -WindowStyle Hidden and -NonInteractive flags — classic APT staging technique for C2 beacons.",
-        "chain_pattern": [],
-        "value_pattern": [
-            "-w hidden",
-            "-windowstyle hidden",
-            "-noni",
-            "-noninteractive"
-        ],
-        "mitre": [
-            "T1059.001",
-            "T1053.005",
-            "T1564.003"
-        ],
-        "severity_boost": 30,
-        "confidence": "high"
-    },
-    {
-        "id": "APT-SIG-007",
-        "name": "AppData Roaming Persistence Binary",
-        "apt_groups": [
-            "APT32",
-            "Lazarus",
-            "FIN7",
-            "Kimsuky"
-        ],
-        "description": "Persistence binary located in AppData\\Roaming — standard dropper placement across many APT families to avoid requiring admin rights.",
-        "chain_pattern": [],
-        "value_pattern": [
-            "\\appdata\\roaming"
-        ],
-        "mitre": [
-            "T1547.001"
-        ],
-        "severity_boost": 15,
-        "confidence": "medium"
-    },
-    {
-        "id": "APT-SIG-008",
-        "name": "Temp Directory Service Binary",
-        "apt_groups": [
-            "Lazarus",
-            "FIN7",
-            "APT41"
-        ],
-        "description": "Service binary in Windows Temp directory — typical of dropper-installed backdoors and RATs.",
-        "chain_pattern": [],
-        "value_pattern": [
-            "\\windows\\temp",
-            "\\temp\\"
-        ],
-        "mitre": [
-            "T1543.003"
-        ],
-        "severity_boost": 25,
-        "confidence": "high"
-    },
-    {
-        "id": "APT-SIG-009",
-        "name": "Base64 Encoded Scheduled Task Payload",
-        "apt_groups": [
-            "APT29",
-            "Lazarus",
-            "Kimsuky",
-            "TA505"
-        ],
-        "description": "Scheduled task command contains Base64-encoded payload — used to evade command-line detection and store stager payloads.",
-        "chain_pattern": [],
-        "value_pattern": [
-            "-enc ",
-            "frombase64",
-            "base64"
-        ],
-        "mitre": [
-            "T1027",
-            "T1053.005"
-        ],
-        "severity_boost": 30,
-        "confidence": "high"
-    },
-    {
-        "id": "APT-SIG-010",
-        "name": "Masquerading as Windows Update",
-        "apt_groups": [
-            "Lazarus",
-            "APT41",
-            "Kimsuky",
-            "TA505"
-        ],
-        "description": "Entry name or binary masquerades as Windows Update infrastructure — common APT deception technique.",
-        "chain_pattern": [],
-        "name_pattern": [
-            "windowsupdate",
-            "winupdate",
-            "wuauserv",
-            "wuauclt"
-        ],
-        "mitre": [
-            "T1036.004",
-            "T1547.001"
-        ],
-        "severity_boost": 25,
-        "confidence": "medium"
-    },
-    {
-        "id": "APT-SIG-011",
-        "name": "rundll32 Scheduled Task LOLBin",
-        "apt_groups": [
-            "APT29",
-            "Cobalt Group",
-            "FIN7"
-        ],
-        "description": "Scheduled task executes via rundll32.exe — widely used LOLBin technique to execute malicious DLLs without spawning obvious executables.",
-        "chain_pattern": [],
-        "value_pattern": [
-            "rundll32"
-        ],
-        "mitre": [
-            "T1218.011",
-            "T1053.005"
-        ],
-        "severity_boost": 15,
-        "confidence": "low"
-    },
-    {
-        "id": "APT-SIG-012",
-        "name": "Service Name Mimicry (svchost/lsass impersonation)",
-        "apt_groups": [
-            "APT41",
-            "Lazarus",
-            "FIN7"
-        ],
-        "description": "Service or task name mimics legitimate Windows process names (svchost32, lsass32, svcupdate) — classic APT defense evasion.",
-        "chain_pattern": [],
-        "name_pattern": [
-            "svchost32",
-            "lsass32",
-            "svcupdate",
-            "svchosts",
-            "lsasss"
-        ],
-        "mitre": [
-            "T1036.004",
-            "T1543.003"
-        ],
-        "severity_boost": 30,
-        "confidence": "high"
-    }
+  {
+    "id": "APT-SIG-001",
+    "name": "Accessibility Tool IFEO Hijack",
+    "apt_groups": ["APT41", "FIN7", "Lazarus"],
+    "description": "Attacker sets a debugger key on accessibility tools (sethc, magnify, osk, narrator) via reg.exe to gain SYSTEM shell on logon screen.",
+    "chain_pattern": ["reg.exe"],
+    "target_pattern": ["ifeo", "image file execution", "debugger"],
+    "mitre": ["T1546.012"],
+    "severity_boost": 35,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-002",
+    "name": "PowerShell Encoded Command Persistence",
+    "apt_groups": ["APT29", "APT32", "Lazarus", "FIN7"],
+    "description": "Persistence entry uses PowerShell with encoded/obfuscated command — classic fileless technique used across many APT campaigns.",
+    "chain_pattern": ["powershell.exe"],
+    "value_pattern": ["-enc", "-encodedcommand", "frombase64string"],
+    "mitre": ["T1059.001", "T1027", "T1547.001"],
+    "severity_boost": 30,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-003",
+    "name": "LOLBin Chain Persistence (Script Engine to reg.exe)",
+    "apt_groups": ["APT29", "Sandworm", "FIN6"],
+    "description": "Scripting engine spawns reg.exe or schtasks to establish persistence — common in red team frameworks and APT tooling.",
+    "chain_pattern": ["python", "node.exe", "wscript.exe", "cscript.exe"],
+    "child_pattern": ["reg.exe", "schtasks.exe", "sc.exe"],
+    "mitre": ["T1059.006", "T1053.005", "T1112"],
+    "severity_boost": 25,
+    "confidence": "medium"
+  },
+  {
+    "id": "APT-SIG-004",
+    "name": "PowerShell to schtasks Persistence",
+    "apt_groups": ["APT29", "APT41", "Cobalt Group"],
+    "description": "PowerShell spawns schtasks.exe to create a scheduled task — extremely common in Cobalt Strike post-exploitation and APT29 tradecraft.",
+    "chain_pattern": ["powershell.exe"],
+    "child_pattern": ["schtasks.exe"],
+    "mitre": ["T1059.001", "T1053.005"],
+    "severity_boost": 25,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-005",
+    "name": "cmd.exe to sc.exe Service Installation",
+    "apt_groups": ["FIN7", "APT41", "Lazarus"],
+    "description": "cmd.exe spawns sc.exe to install a service — used for persistence and privilege escalation by multiple APT groups.",
+    "chain_pattern": ["cmd.exe"],
+    "child_pattern": ["sc.exe"],
+    "mitre": ["T1059.003", "T1543.003"],
+    "severity_boost": 20,
+    "confidence": "medium"
+  },
+  {
+    "id": "APT-SIG-006",
+    "name": "Hidden PowerShell Window Scheduled Task",
+    "apt_groups": ["APT29", "APT32", "Kimsuky"],
+    "description": "Scheduled task runs PowerShell with -WindowStyle Hidden and -NonInteractive flags — classic APT staging technique for C2 beacons.",
+    "chain_pattern": [],
+    "value_pattern": ["-w hidden", "-windowstyle hidden", "-noni", "-noninteractive"],
+    "mitre": ["T1059.001", "T1053.005", "T1564.003"],
+    "severity_boost": 30,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-007",
+    "name": "AppData Roaming Persistence Binary",
+    "apt_groups": ["APT32", "Lazarus", "FIN7", "Kimsuky"],
+    "description": "Persistence binary in AppData\\Roaming — standard dropper placement across many APT families to avoid requiring admin rights.",
+    "chain_pattern": [],
+    "value_pattern": ["\\appdata\\roaming"],
+    "mitre": ["T1547.001"],
+    "severity_boost": 15,
+    "confidence": "medium"
+  },
+  {
+    "id": "APT-SIG-008",
+    "name": "Temp Directory Service Binary",
+    "apt_groups": ["Lazarus", "FIN7", "APT41"],
+    "description": "Service binary in Windows Temp directory — typical of dropper-installed backdoors and RATs.",
+    "chain_pattern": [],
+    "value_pattern": ["\\windows\\temp", "\\temp\\"],
+    "mitre": ["T1543.003"],
+    "severity_boost": 25,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-009",
+    "name": "Base64 Encoded Scheduled Task Payload",
+    "apt_groups": ["APT29", "Lazarus", "Kimsuky", "TA505"],
+    "description": "Scheduled task command contains Base64-encoded payload — used to evade command-line detection.",
+    "chain_pattern": [],
+    "value_pattern": ["-enc ", "frombase64", "base64"],
+    "mitre": ["T1027", "T1053.005"],
+    "severity_boost": 30,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-010",
+    "name": "Masquerading as Windows Update",
+    "apt_groups": ["Lazarus", "APT41", "Kimsuky", "TA505"],
+    "description": "Entry name or binary masquerades as Windows Update infrastructure — common APT deception technique.",
+    "chain_pattern": [],
+    "name_pattern": ["windowsupdate", "winupdate", "wuauserv", "wuauclt"],
+    "mitre": ["T1036.004", "T1547.001"],
+    "severity_boost": 25,
+    "confidence": "medium"
+  },
+  {
+    "id": "APT-SIG-011",
+    "name": "rundll32 Scheduled Task LOLBin",
+    "apt_groups": ["APT29", "Cobalt Group", "FIN7"],
+    "description": "Scheduled task executes via rundll32.exe — widely used LOLBin technique.",
+    "chain_pattern": [],
+    "value_pattern": ["rundll32"],
+    "mitre": ["T1218.011", "T1053.005"],
+    "severity_boost": 15,
+    "confidence": "low"
+  },
+  {
+    "id": "APT-SIG-012",
+    "name": "Service Name Mimicry (svchost/lsass impersonation)",
+    "apt_groups": ["APT41", "Lazarus", "FIN7"],
+    "description": "Service or task name mimics legitimate Windows process names — classic APT defense evasion.",
+    "chain_pattern": [],
+    "name_pattern": ["svchost32", "lsass32", "svcupdate", "svchosts", "lsasss"],
+    "mitre": ["T1036.004", "T1543.003"],
+    "severity_boost": 30,
+    "confidence": "high"
+  },
+
+  {
+    "id": "STL-SIG-001",
+    "name": "Commodity Info Stealer — AppData Run Key",
+    "apt_groups": ["Lumma Stealer", "Redline Stealer", "Stealc", "Vidar", "Raccoon"],
+    "description": "Random or generic-named Run key pointing to binary in AppData/Temp — primary persistence method of commodity MaaS info stealers. These tools steal browser cookies, saved passwords, and crypto wallets then exfiltrate to C2.",
+    "chain_pattern": [],
+    "value_pattern": ["\\appdata\\local\\temp", "\\appdata\\roaming", "\\appdata\\local\\microsoft\\windows"],
+    "name_pattern": ["update", "helper", "runtime", "host", "service", "agent", "sync", "loader", "client"],
+    "mitre": ["T1547.001", "T1555.003", "T1041"],
+    "severity_boost": 35,
+    "confidence": "high"
+  },
+  {
+    "id": "STL-SIG-002",
+    "name": "Browser Credential Store Reference in Persistence",
+    "apt_groups": ["Lumma Stealer", "Redline Stealer", "Stealc", "Raccoon", "Aurora"],
+    "description": "Persistence value directly references browser profile paths (Cookies, Login Data, Web Data). This is a direct fingerprint of info stealers — legitimate software has no reason to reference these paths in a Run key.",
+    "chain_pattern": [],
+    "value_pattern": [
+      "google\\chrome\\user data",
+      "microsoft\\edge\\user data",
+      "mozilla\\firefox\\profiles",
+      "brave-browser\\user data",
+      "network\\cookies",
+      "login data",
+      "web data"
+    ],
+    "mitre": ["T1555.003", "T1539"],
+    "severity_boost": 40,
+    "confidence": "high"
+  },
+  {
+    "id": "STL-SIG-003",
+    "name": "Crypto Wallet Targeting Persistence",
+    "apt_groups": ["Lumma Stealer", "Stealc", "Mars Stealer", "Vidar", "Redline Stealer"],
+    "description": "Persistence entry references cryptocurrency wallet paths or browser extension storage. Stealers targeting crypto holders specifically look for MetaMask, Phantom, Exodus, and similar wallet data.",
+    "chain_pattern": [],
+    "value_pattern": [
+      "ethereum\\keystore",
+      "bitcoin\\wallet",
+      "electrum\\wallets",
+      "\\exodus",
+      "\\atomic",
+      "metamask",
+      "phantom",
+      "\\roaming\\ethereum"
+    ],
+    "mitre": ["T1555", "T1547.001"],
+    "severity_boost": 40,
+    "confidence": "high"
+  },
+  {
+    "id": "STL-SIG-004",
+    "name": "PowerShell Download Cradle + AppData Dropper",
+    "apt_groups": ["Lumma Stealer", "Redline Stealer", "TA505", "FIN7"],
+    "description": "PowerShell downloads and executes payload stored in AppData — standard commodity stealer distribution chain seen in fake CAPTCHA, malvertising, and cracked software campaigns.",
+    "chain_pattern": ["powershell.exe"],
+    "value_pattern": [
+      "downloadstring",
+      "downloadfile",
+      "webclient",
+      "invoke-webrequest",
+      "iwr ",
+      "\\appdata"
+    ],
+    "mitre": ["T1059.001", "T1105", "T1547.001"],
+    "severity_boost": 35,
+    "confidence": "high"
+  },
+  {
+    "id": "STL-SIG-005",
+    "name": "Fake Installer Dropper Pattern",
+    "apt_groups": ["Lumma Stealer", "Redline Stealer", "Stealc", "Vidar"],
+    "description": "Persistence established by a process with an installer-like name from a temp or download location — common in trojanised software, cracked games, and fake tools distributed via YouTube/Discord/torrents.",
+    "chain_pattern": ["setup", "install", "crack", "patch", "keygen", "activator"],
+    "child_pattern": ["reg.exe", "schtasks.exe"],
+    "mitre": ["T1195.002", "T1547.001", "T1053.005"],
+    "severity_boost": 30,
+    "confidence": "medium"
+  },
+  {
+    "id": "STL-SIG-006",
+    "name": "Scheduled Task Stealer Persistence with Short Interval",
+    "apt_groups": ["Redline Stealer", "Stealc", "Aurora", "Raccoon"],
+    "description": "Scheduled task with a very short repeat interval pointing to binary in user-writable directory — stealers use this to re-run and re-exfiltrate if the first run is interrupted.",
+    "chain_pattern": [],
+    "value_pattern": ["\\appdata", "\\temp", "\\users\\public"],
+    "name_pattern": ["update", "sync", "check", "monitor", "task", "schedule"],
+    "mitre": ["T1053.005", "T1555.003"],
+    "severity_boost": 30,
+    "confidence": "medium"
+  },
+  {
+    "id": "STL-SIG-007",
+    "name": "Clipper / Crypto Hijacker Persistence",
+    "apt_groups": ["Laplas Clipper", "MortalKombat", "Redline Stealer"],
+    "description": "Persistence entry associated with clipboard monitoring for crypto address replacement. Clippers watch the clipboard for wallet addresses and silently replace them with the attacker's address.",
+    "chain_pattern": [],
+    "value_pattern": ["\\appdata", "\\temp"],
+    "name_pattern": ["clip", "clipboard", "wallet", "crypto", "btc", "eth"],
+    "mitre": ["T1547.001", "T1115"],
+    "severity_boost": 35,
+    "confidence": "medium"
+  },
+  {
+    "id": "APT-SIG-013",
+    "name": "Cobalt Strike Beacon Staging Pattern",
+    "apt_groups": ["APT29", "APT41", "FIN7", "Cobalt Group", "TA505"],
+    "description": "Persistence pattern matching Cobalt Strike beacon staging: PowerShell with reflection or assembly loading from temp path — seen across dozens of APT and ransomware campaigns.",
+    "chain_pattern": ["powershell.exe"],
+    "value_pattern": [
+      "reflection.assembly",
+      "[system.reflection",
+      "loadfile",
+      "load(",
+      "\\windows\\temp"
+    ],
+    "mitre": ["T1059.001", "T1620", "T1547.001"],
+    "severity_boost": 35,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-014",
+    "name": "WMI Event Subscription Persistence",
+    "apt_groups": ["APT29", "APT32", "APT33", "Lazarus", "FIN6"],
+    "description": "WMI event subscription used for persistence — nearly invisible to basic tools, survives reboots. Used heavily by APT29 (Cozy Bear) and other sophisticated actors. Triggered by __EventFilter + __CommandLineEventConsumer combination.",
+    "chain_pattern": ["wmic.exe", "powershell.exe"],
+    "value_pattern": [
+      "__eventfilter",
+      "__commandlineeventconsumer",
+      "__filtertoconsumerbinding",
+      "wmi",
+      "subscribe"
+    ],
+    "mitre": ["T1546.003"],
+    "severity_boost": 40,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-015",
+    "name": "COM Object Hijacking",
+    "apt_groups": ["APT28", "APT29", "Lazarus", "FIN7"],
+    "description": "Persistence via COM object hijacking — malicious DLL registered in HKCU to override a system COM object. Executes when the hijacked COM object is invoked by a legitimate process, making it very hard to detect.",
+    "chain_pattern": [],
+    "target_pattern": [
+      "hkcu\\software\\classes\\clsid",
+      "hkcu\\software\\classes\\wow6432node\\clsid",
+      "inprocserver32"
+    ],
+    "mitre": ["T1546.015"],
+    "severity_boost": 35,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-016",
+    "name": "Startup Folder Dropper",
+    "apt_groups": ["APT32", "Kimsuky", "TA505", "Lazarus"],
+    "description": "Binary dropped into user or common Startup folder — simple but effective persistence used widely across APT and commodity malware families.",
+    "chain_pattern": [],
+    "value_pattern": [
+      "\\microsoft\\windows\\start menu\\programs\\startup",
+      "\\appdata\\roaming\\microsoft\\windows\\start menu\\programs\\startup",
+      "\\programdata\\microsoft\\windows\\start menu\\programs\\startup"
+    ],
+    "mitre": ["T1547.001"],
+    "severity_boost": 25,
+    "confidence": "medium"
+  },
+  {
+    "id": "APT-SIG-017",
+    "name": "Kimsuky / North Korean Actor PowerShell Beacon",
+    "apt_groups": ["Kimsuky", "Lazarus", "APT37", "ScarCruft"],
+    "description": "PowerShell persistence with noprofile + bypass + encoded command targeting C2 infrastructure — matches documented Kimsuky and Lazarus Group tradecraft used in espionage campaigns against government and crypto targets.",
+    "chain_pattern": ["powershell.exe"],
+    "value_pattern": ["-nop", "-bypass", "-enc"],
+    "mitre": ["T1059.001", "T1027", "T1547.001", "T1053.005"],
+    "severity_boost": 35,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-018",
+    "name": "TA505 / Dridex Scheduled Task Pattern",
+    "apt_groups": ["TA505", "Evil Corp", "Dridex"],
+    "description": "Scheduled task with random or GUID-like name created by cmd or PowerShell — matches TA505 and Dridex distribution campaigns. Often used as initial persistence for ransomware pre-positioning.",
+    "chain_pattern": ["cmd.exe", "powershell.exe"],
+    "child_pattern": ["schtasks.exe"],
+    "value_pattern": ["\\appdata", "\\temp", "\\users\\public"],
+    "mitre": ["T1053.005", "T1547.001"],
+    "severity_boost": 30,
+    "confidence": "medium"
+  },
+  {
+    "id": "APT-SIG-019",
+    "name": "Registry Run Key via mshta / HTA",
+    "apt_groups": ["APT32", "APT40", "FIN7", "Kimsuky"],
+    "description": "mshta.exe used to write or execute persistence — HTA (HTML Application) files are a classic APT delivery and persistence mechanism that bypasses many application controls.",
+    "chain_pattern": ["mshta.exe"],
+    "child_pattern": ["reg.exe", "schtasks.exe", "cmd.exe", "powershell.exe"],
+    "mitre": ["T1218.005", "T1547.001"],
+    "severity_boost": 30,
+    "confidence": "high"
+  },
+  {
+    "id": "APT-SIG-020",
+    "name": "certutil Payload Decode + Execute",
+    "apt_groups": ["APT29", "APT41", "Lazarus", "FIN7", "Cobalt Group"],
+    "description": "certutil.exe used to decode and execute a payload — widely abused LOLBin for stager decoding. Used in APT campaigns and commodity malware because it's a signed Microsoft binary.",
+    "chain_pattern": ["certutil.exe"],
+    "child_pattern": ["cmd.exe", "powershell.exe", "reg.exe"],
+    "mitre": ["T1140", "T1218.003", "T1547.001"],
+    "severity_boost": 30,
+    "confidence": "high"
+  }
 ]
