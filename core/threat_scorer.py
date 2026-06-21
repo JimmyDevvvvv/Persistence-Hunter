@@ -337,12 +337,15 @@ def match_apt_signatures(
     value = (entry.get("value_data") or entry.get("command") or
              entry.get("binary_path") or "").lower()
 
-    _parts   = value.split('"') if value.startswith('"') else value.split()
-    _bin     = os.path.basename(
-        _parts[1] if len(_parts) > 1 else (_parts[0] if _parts else "")
-    ).lower()
-    is_legit          = _bin in LEGIT_APPDATA_APPS
-    is_legit_appdata  = _legit_appdata_dir(value) in LEGIT_APPDATA_DIRS
+    _parts    = value.split('"') if value.startswith('"') else value.split()
+    _bin_path = (_parts[1] if len(_parts) > 1 else (_parts[0] if _parts else "")).strip()
+    _bin      = os.path.basename(_bin_path).lower()
+    _par_dir  = os.path.basename(os.path.dirname(_bin_path)).lower()
+    is_legit         = _bin in LEGIT_APPDATA_APPS
+    is_legit_appdata = (
+        _legit_appdata_dir(value) in LEGIT_APPDATA_DIRS or
+        _par_dir in LEGIT_APPDATA_DIRS
+    )
 
     chain_names  = [n.get("name", "").lower() for n in chain]
     all_cmdlines = " ".join((n.get("cmdline") or "").lower() for n in chain)
@@ -483,13 +486,16 @@ def score_entry(
             "Standard Run key persistence")
 
     # ── 2. Path analysis ─────────────────────────────────────────────────
-    _parts   = value.split('"') if value.startswith('"') else value.split()
-    _bin     = os.path.basename(
-        _parts[1] if len(_parts) > 1 else (_parts[0] if _parts else "")
-    ).lower()
+    _parts    = value.split('"') if value.startswith('"') else value.split()
+    _bin_path = (_parts[1] if len(_parts) > 1 else (_parts[0] if _parts else "")).strip()
+    _bin      = os.path.basename(_bin_path).lower()
+    _par_dir  = os.path.basename(os.path.dirname(_bin_path)).lower()
 
     _appdata_dir      = _legit_appdata_dir(value)
-    _is_legit_appdata = _appdata_dir in LEGIT_APPDATA_DIRS
+    _is_legit_appdata = (
+        _appdata_dir in LEGIT_APPDATA_DIRS or
+        _par_dir in LEGIT_APPDATA_DIRS
+    )
 
     if r"\windows\temp" in value or (r"\temp\\" in value and
                                       r"\appdata\local\temp" not in value):
@@ -523,8 +529,9 @@ def score_entry(
             "Binary in Program Files or System32 — expected install location")
 
     elif _is_legit_appdata:
+        _dir_label = _appdata_dir or _par_dir
         add("legit_appdata_binary", WEIGHTS["legit_appdata_binary"],
-            f"Binary inside known-legitimate app directory: \\{_appdata_dir}\\ "
+            f"Binary inside known-legitimate app directory: \\{_dir_label}\\ "
             "(Squirrel / non-admin install)")
 
     # ── 3. Name signals ──────────────────────────────────────────────────

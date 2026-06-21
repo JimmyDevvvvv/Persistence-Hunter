@@ -1,229 +1,157 @@
 # Persistence Hunter
 
-Open-source Windows security tool protecting regular users from info stealers (Lumma, Redline, Stealc), malware persistence, and credential theft. Free forever, community-driven detection rules.
+**Info stealers steal your accounts in seconds. Persistence Hunter catches them in real time.**
 
-Most tools give you a list. This gives you a chain — and tells you whether a persistence entry was dropped by a legitimate installer, a user action, or something that shouldn't be there at all.
+Free, open-source, no telemetry. Runs locally on Windows 10/11.
+
+---
+
+## Why this exists
+
+Info stealers (Lumma, Redline, Stealc, Vidar) are the #1 way accounts get compromised in 2024.
+They run silently, steal every saved password, session cookie, and crypto wallet in under 10 seconds,
+and then install themselves to survive reboots.
+
+Chrome's DBSC protects cookies *after* infection. No free tool catches the infection itself —
+the moment malware drops a file, writes a Run key, and phones home with your credentials.
+
+**Persistence Hunter does.** It watches the exact kill chain that every commodity stealer follows
+and alerts you before exfiltration completes.
 
 ---
 
 ## What it detects
 
-**Persistence mechanisms**
-- Registry run keys across HKCU and HKLM, including RunOnce and common persistence subkeys
-- Scheduled tasks — full enumeration with command parsing and PowerShell decode
-- Windows services — all entries with binary path extraction and signature verification
+**The info stealer kill chain**
 
-**Real-time signals (Phase 3 — ETW)**
-- Registry writes to Run keys as they happen
-- Process creation events
-- Dropper file creation in suspicious paths
-
-**Threat analysis**
-- 0–100 threat score per entry with per-factor breakdown
-- APT/stealer signature matching — 27 signatures covering APT29, Cobalt Strike, Lumma, Redline, Stealc, Vidar, Raccoon, and more
-- MITRE ATT&CK technique tagging
-- Info stealer fingerprinting — browser credential path access (T1555.003), DPAPI abuse, crypto wallet targeting
-- LOLBin detection, process masquerading, encoded PowerShell decode
-- Attack chain reconstruction — who wrote the persistence entry, and what wrote that
-
-**Binary verification**
-- Authenticode status via PowerShell
-- SHA256 per service binary
-- Ghost service detection when binary is missing from disk
-
----
-
-## Architecture
-
-```
-core/
-    threat_scorer.py      scoring engine (0-100 composite score)
-    alert_translator.py   plain English translation for consumer UI
-
-collector/
-    base_collector.py         shared DB, event ingestion, chain building
-    registry_collector.py     registry run key scanner
-    task_collector.py         scheduled task scanner
-    service_collector.py      service scanner
-
-enrichment/
-    local.py              Authenticode PE signature check (no API key)
-    vt.py                 VirusTotal lookup (optional, needs API key)
-    mb.py                 MalwareBazaar lookup (optional, no key needed)
-
-api/
-    main.py               FastAPI app (localhost:8000)
-    scan_worker.py        background scan pipeline
-    routes/               REST endpoints
-
-service/
-    service_wrapper.py    Windows service wrapper (pywin32)
-    tray.py               system tray icon (green/amber/red/grey)
-    toast.py              native Windows toast notifications
-
-rules/
-    apt_signatures.json   27 APT/stealer detection signatures
-
-tools/
-    check_signatures.py   CLI binary signature checker
-    scan_summary.py       CLI cross-collector summary
-    ps_decode.py          PowerShell -enc decoder utility
-    fix_base.py           one-shot baseline patch utility
-    inject_baseline.py    one-shot baseline injection utility
-
-frontend/
-    src/
-        pages/
-            Dashboard.jsx         telemetry overview, charts, recent alerts
-            ConsumerDashboard.jsx  plain-English consumer UI
-            Alerts.jsx             alert feed with attack chain visualizer
-            EntryDetail.jsx        per-entry tabs: Summary, Attack Chain, Intel, Details
-            Entries.jsx            full entry table with filters
-            Baseline.jsx           snapshot management and diff view
-            Search.jsx             free-text search
-
-src-tauri/               Tauri shell (window hides to tray, IPC for tray updates)
-```
-
----
-
-## Threat scoring
-
-Entries are scored 0–100. The score is a weighted composite of risk signals, not a single flag.
-
-| Score | Label | Meaning |
+| Stage | What happens | How we detect it |
 |---|---|---|
-| 80–100 | Critical | High confidence. Investigate immediately. |
-| 60–79 | High | Suspicious. Likely malicious or high-risk. |
-| 35–59 | Medium | Indicators present. Review recommended. |
-| 0–34 | Low | Informational. Probably not worth your time. |
+| Drop | Unsigned .exe lands in %Temp% or %AppData% | Real-time file watcher |
+| Persist | Run key written so malware survives reboot | RegNotifyChangeKeyValue (instant) |
+| Steal | Process reads Chrome cookies, Login Data | Behavioral correlation (BEH-001) |
+| Exfil | Beacon phones home | (Phase 4 — network monitor) |
 
-Key signals: encoded PowerShell payload, temp/user-writable paths, LOLBin abuse, process masquerading, malicious chain node, APT signature match, unsigned binary, browser credential path references, DPAPI abuse.
+**Persistence mechanisms scanned**
+- Registry Run / RunOnce keys (HKCU + HKLM)
+- Scheduled tasks — full command parsing, PowerShell -enc decode
+- Windows services — binary path extraction, ghost service detection
 
----
-
-## UI modes
-
-**Consumer mode** — clean hero zone, plain English alert cards, one-click block/trust.
-- Hero zone colour changes with threat status (green → amber → red)
-- Critical alerts show as persistent toasts until dismissed
-- Switch to analyst mode with the `</>` button (bottom right)
-
-**Analyst mode** — full dashboard, MITRE tags, attack chain visualizer, rule manager, score breakdowns.
-
-**Tray icon** — green = clean, amber = warning/high, red = critical, grey = error.
+**Threat signatures** — 27 rules covering:
+- Commodity stealers: Lumma Stealer, Redline, Stealc, Vidar, Raccoon
+- APT groups: APT29 (Cozy Bear), APT41, Lazarus, Kimsuky, FIN7
+- Red team tools: Cobalt Strike, WMI persistence, COM hijacking, certutil, MSHTA
 
 ---
 
-## Requirements
+## How it works
 
-- Windows 10/11 or Server 2016+
-- Python 3.11+
-- Node.js 18+ for the frontend
-- Admin rights for service enumeration and event log access
-
-Python packages: `fastapi uvicorn pywin32 pystray Pillow winotify requests`
-
-Frontend packages: `react vite @tanstack/react-query axios react-router-dom framer-motion`
+A background service watches your registry Run keys and process list in real time using
+native Windows APIs (no kernel driver, no Sysmon required). When it sees the sequence
+`suspicious process → Run key write → credential file access` within 30 seconds, it fires
+an alert — a native Windows toast notification in plain English, not a 400-line log file.
 
 ---
 
-## Setup
+## Quick Start
 
-Start all subsystems:
+**Requirements:** Windows 10/11, Python 3.11+, admin rights
+
 ```
+pip install fastapi uvicorn pywin32 pystray Pillow winotify requests wmi
 python service/service_wrapper.py debug
 ```
 
-This starts the FastAPI backend (localhost:8000) and the system tray icon.
+This starts three things: the API backend (http://127.0.0.1:8000), the system tray icon,
+and the real-time ETW monitor.
 
-Take a baseline on a known-clean system:
+**Take a baseline on your clean machine:**
 ```
-python collector/registry_collector.py --scan --events --hours 72 --baseline
-python collector/task_collector.py --scan --events --hours 72 --baseline
-python collector/service_collector.py --scan --events --hours 72 --baseline
-```
-
-Start the frontend:
-```
-cd frontend
-npm install
-npm run dev
+python collector/registry_collector.py --scan --baseline
+python collector/task_collector.py     --scan --baseline
+python collector/service_collector.py  --scan --baseline
 ```
 
----
-
-## Daily scan workflow
-
-```
-python collector/registry_collector.py --scan --events --hours 1 --diff --chain-all
-python collector/task_collector.py --scan --events --hours 1 --diff --chain-all
-python collector/service_collector.py --scan --events --hours 1 --diff --chain-all
-python tools/scan_summary.py --chains
-```
-
-Score all entries:
+**Score and review what's on your system:**
 ```
 python -m core.threat_scorer --summary
 ```
 
-Check binary signatures:
-```
-python tools/check_signatures.py --unsigned-only
-```
+**Open the dashboard:**
+http://127.0.0.1:8000
 
 ---
 
-## CLI flags
+## Screenshots
 
-| Flag | Description |
-|---|---|
-| `--scan` | Enumerate current persistence entries |
-| `--events` | Collect Security and System event logs |
-| `--hours N` | Event lookback window in hours (default 24) |
-| `--baseline` | Snapshot current entries as the active baseline |
-| `--diff` | Output only entries not present in the last baseline |
-| `--chain-all` | Build attack chains for all High and Critical entries |
-| `--json` | Export results to JSON |
+*Screenshots coming — UI is functional but pre-release polish in progress.*
+
+Consumer mode: clean hero zone, plain-English alert cards, threat status indicator.
+Analyst mode: full dashboard, attack chain visualizer, MITRE tags, score breakdowns.
+Switch between them with the `</>` button.
 
 ---
 
-## API
+## Detection coverage
 
-| Endpoint | Method | Description |
+| MITRE Technique | Description | Source |
 |---|---|---|
-| `/api/health` | GET | DB connectivity check |
-| `/api/status` | GET | Current threat status (drives tray icon) |
-| `/api/stats` | GET | Aggregated counts across all types |
-| `/api/summary` | GET | New High/Critical entries since baseline |
-| `/api/alerts` | GET | Full alert feed |
-| `/api/entries` | GET | All entries with type and severity filters |
-| `/api/chains/{type}/{id}` | GET | Attack chain for one entry |
-| `/api/scores` | GET | All threat scores |
-| `/api/scores/run` | POST | Run scorer across all entries |
-| `/api/scan` | POST | Trigger full background scan |
-| `/api/baseline` | GET/POST | List or create baselines |
-| `/api/search` | GET | Search entries and process events |
+| T1547.001 | Registry Run Keys | Registry collector + real-time watcher |
+| T1053.005 | Scheduled Task/Job | Task collector |
+| T1543.003 | Windows Service | Service collector |
+| T1555.003 | Credentials from Web Browsers | Scorer (credential path signals) |
+| T1140 | Deobfuscate/Decode Files | PowerShell -enc decoder |
+| T1059.001 | PowerShell | Chain analysis (LOLBin detection) |
+| T1036 | Masquerading | Name masquerade detection |
+| T1574.001 | DLL Search Order Hijacking | Signature rules APT-SIG-009 |
+| T1546.001 | Change Default File Association | Signature rules APT-SIG-010 |
+| T1218 | System Binary Proxy Execution | LOLBin signatures (certutil, mshta, regsvr32) |
+| T1055 | Process Injection | Behavioral rules (BEH-001 chain) |
+| BEH-001 | Info Stealer Full Chain | Real-time correlator (30s window) |
+| BEH-002 | Suspicious Process Writes Run Key | Real-time correlator (60s window) |
+
+Full signature list: `rules/apt_signatures.json`, `rules/behavior_rules.json`
 
 ---
 
-## Detection rules
+## Contributing
 
-Rules live in `rules/apt_signatures.json` — 27 signatures covering:
-- APT groups: APT29 (Cozy Bear), APT41, Lazarus, Kimsuky, FIN7
-- Commodity stealers: Lumma, Redline, Stealc, Vidar, Raccoon, Laplas Clipper
-- Red team tools: Cobalt Strike beacons, Meterpreter, WMI persistence, COM hijacking, certutil abuse, MSHTA/HTA
+**Report false positives** — open an issue with:
+- Entry name and value from `python -m core.threat_scorer --summary`
+- The software that owns it
+- Your Windows version
 
-Behavioral correlation rules (Phase 3): event A + event B within 30 seconds = alert.
+**Improve detection rules** — `rules/apt_signatures.json` and `rules/behavior_rules.json`
+follow a documented schema. New signatures welcome via PR.
 
-Community rule submission via GitHub PR is planned for Phase 4.
+**Test on infected VMs** — if you have access to malware samples in a controlled
+environment, scan results + VirusTotal links help validate detection coverage.
+
+**Code** — see open issues. The project follows standard Python conventions.
+No external testing framework required — run `python -m core.threat_scorer --summary`
+to verify scorer changes don't produce false positives on a clean machine.
+
+---
+
+## Roadmap
+
+See [PLAN.md](PLAN.md) for the full roadmap. Summary:
+
+| Phase | Status | What |
+|---|---|---|
+| 1 | Done | Threat scorer, APT/stealer signatures, alert translator |
+| 2 | Done | Windows service, tray icon, consumer UI, Tauri shell |
+| 3 | Done | ETW real-time monitor, behavioral correlation |
+| 4 | Planned | Network monitor, rule auto-update, community submission |
+| 5 | Planned | Packaged installer, Microsoft Store |
 
 ---
 
 ## Limitations
 
-- Windows only — tightly coupled to Windows event log structure
-- Service enumeration and some event log queries require admin rights (running without elevation produces incomplete results silently)
-- No Sysmon required — ETW-based monitoring (Phase 3) replaces Sysmon dependency
-- Signature checking runs a PowerShell subprocess per binary — not designed for real-time use
-- Do not expose port 8000 to a network without a reverse proxy
+- Windows only (Windows 10 / 11 / Server 2016+)
+- Admin rights needed for service enumeration and HKLM key monitoring
+- PID attribution for registry writes is probabilistic (RegNotifyChangeKeyValue
+  does not report which process wrote a key — temporal correlation is used instead)
+- Binary signature check uses a PowerShell subprocess — not for real-time use
+- Port 8000 is localhost only; do not expose to a network without a reverse proxy
+- No kernel driver, no Sysmon dependency
