@@ -59,7 +59,7 @@ def get_alerts(limit: int = Query(default=100, le=500)):
                     FROM   {table} e
                     JOIN   threat_scores ts
                            ON ts.entry_type = ? AND ts.entry_id = e.id
-                    WHERE  ts.score > 0
+                    WHERE  ts.score >= 35
                     ORDER  BY ts.score DESC
                 """, (etype,)).fetchall()
             except Exception:

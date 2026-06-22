@@ -86,9 +86,12 @@ def _get_new_entry_count(db_path: str) -> dict:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        bl = conn.execute(
-            "SELECT id FROM baselines ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        try:
+            bl = conn.execute(
+                "SELECT id FROM baselines ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        except Exception:
+            bl = None
         if not bl:
             return {"registry": 0, "task": 0, "service": 0, "total": 0}
 
