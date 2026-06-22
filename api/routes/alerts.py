@@ -1,9 +1,16 @@
 """api/routes/alerts.py — /api/alerts"""
 
+import sys
+import os
 import json
 
 from fastapi import APIRouter, Query
-from api.dependencies import get_db, row_to_dict
+from api.dependencies import get_db, DB_PATH, row_to_dict
+
+# Ensure repo root is on path so core.alert_translator is importable
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 router = APIRouter()
 
@@ -21,59 +28,69 @@ CREATE TABLE IF NOT EXISTS realtime_alerts (
 )
 """
 
-_SEV_CASE = "CASE {t}.severity WHEN 'critical' THEN 0 ELSE 1 END"
+_ENTRY_TABLES = [
+    ("registry", "registry_entries", "name",         "value_data"),
+    ("task",     "task_entries",     "task_name",    "command"),
+    ("service",  "service_entries",  "service_name", "binary_path"),
+]
 
 
 @router.get("")
 def get_alerts(limit: int = Query(default=100, le=500)):
     """
-    Return all high/critical persistence entries across all types,
-    joined with any available enrichment data.
-    Sorted: critical first, then by last_seen descending.
+    Return translated (plain-English) alerts for the consumer dashboard.
+
+    Flow:
+      1. Join each entry table with threat_scores.
+      2. Skip entries with score=0 or an 'excluded' factor in their breakdown.
+      3. Translate each entry+score through alert_translator.translate_alert().
+      4. Sort critical first, return as a plain array.
     """
+    from core.alert_translator import translate_alert
+
     conn = get_db()
     try:
         alerts = []
 
-        queries = [
-            ("registry_entries", "r", "registry",
-             "r.name, r.value_data, r.hive, r.reg_path"),
-            ("task_entries",     "t", "task",
-             "t.task_name as name, t.command as value_data, NULL as hive, t.task_path as reg_path"),
-            ("service_entries",  "s", "service",
-             "s.service_name as name, s.binary_path as value_data, NULL as hive, NULL as reg_path"),
-        ]
+        for etype, table, name_col, val_col in _ENTRY_TABLES:
+            try:
+                rows = conn.execute(f"""
+                    SELECT e.*, ts.score, ts.breakdown_json, ts.apt_json, ts.risk_json
+                    FROM   {table} e
+                    JOIN   threat_scores ts
+                           ON ts.entry_type = ? AND ts.entry_id = e.id
+                    WHERE  ts.score > 0
+                    ORDER  BY ts.score DESC
+                """, (etype,)).fetchall()
+            except Exception:
+                continue
 
-        for table, alias, etype, cols in queries:
-            rows = conn.execute(f"""
-                SELECT {alias}.id,
-                       {alias}.severity,
-                       {alias}.ioc_notes,
-                       {alias}.techniques,
-                       {alias}.first_seen,
-                       {alias}.last_seen,
-                       {cols},
-                       '{etype}' as entry_type,
-                       e.vt_malicious,
-                       e.vt_total,
-                       e.pe_signed,
-                       e.pe_compile_suspicious,
-                       e.overall_verdict,
-                       e.risk_indicators as enrich_indicators
-                FROM {table} {alias}
-                LEFT JOIN enrichment_results e
-                       ON e.entry_type = '{etype}' AND e.entry_id = {alias}.id
-                WHERE {alias}.severity IN ('critical', 'high')
-                ORDER BY {_SEV_CASE.format(t=alias)}, {alias}.last_seen DESC
-                LIMIT ?
-            """, (limit,)).fetchall()
-            alerts += [row_to_dict(r) for r in rows]
+            for row in rows:
+                d         = dict(row)
+                breakdown = json.loads(d.get("breakdown_json") or "[]")
 
-        # Re-sort combined results
-        sev_key = {"critical": 0, "high": 1}
-        alerts.sort(key=lambda x: sev_key.get(x.get("severity"), 2))
+                # Drop entries silenced by the exclusion engine
+                if any(b.get("factor") == "excluded" for b in breakdown):
+                    continue
 
-        return {"alerts": alerts, "count": len(alerts)}
+                entry = {k: v for k, v in d.items()
+                         if k not in ("score", "breakdown_json", "apt_json", "risk_json")}
+                entry["entry_type"] = etype
+
+                score_result = {
+                    "score":           d["score"],
+                    "breakdown":       breakdown,
+                    "apt_matches":     json.loads(d.get("apt_json")  or "[]"),
+                    "risk_indicators": json.loads(d.get("risk_json") or "[]"),
+                }
+
+                alerts.append(translate_alert(entry, score_result, etype))
+
+        _sev = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        alerts.sort(key=lambda a: _sev.get(a.get("severity"), 4))
+
+        return alerts[:limit]
+
     finally:
         conn.close()
 

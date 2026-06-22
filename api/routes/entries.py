@@ -159,8 +159,9 @@ def trust_entry(entry_type: str, entry_name: str):
         raise HTTPException(status_code=404,
                             detail=f"Entry '{entry_name}' not found")
 
+    entry_id  = row["id"]
     value     = row[value_col] or ""
-    excl_type = "process"
+    excl_type  = "process"
     excl_value = entry_name
     method     = "process-name"
 
@@ -182,9 +183,24 @@ def trust_entry(entry_type: str, entry_name: str):
         excl_type=excl_type,
         value=excl_value,
         label=entry_name,
-        expires_minutes=None,   # permanent
+        expires_minutes=None,
         db_path=DB_PATH,
     )
+
+    # Zero out the stored score so GET /api/alerts drops the alert immediately
+    # (without waiting for the next full rescore run).
+    conn2 = get_db()
+    try:
+        conn2.execute(
+            "UPDATE threat_scores SET score = 0 WHERE entry_type = ? AND entry_id = ?",
+            (entry_type, entry_id),
+        )
+        conn2.commit()
+    except Exception:
+        pass
+    finally:
+        conn2.close()
+
     return {
         "id":     new_id,
         "label":  entry_name,

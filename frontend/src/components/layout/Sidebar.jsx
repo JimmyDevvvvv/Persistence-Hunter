@@ -48,7 +48,7 @@ const NAV = [
     },
 ]
 
-export function Sidebar() {
+export function Sidebar({ onSwitchToConsumer }) {
     return (
         <aside
             style={{ background: 'var(--bg-surface)', borderRight: '1px solid var(--bg-border)', width: 160 }}
@@ -100,8 +100,27 @@ export function Sidebar() {
             </nav>
 
             {/* ── Footer ── */}
-            <div style={{ padding: '10px 16px', borderTop: '1px solid var(--bg-border)' }}>
+            <div style={{ padding: '10px 16px', borderTop: '1px solid var(--bg-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ fontFamily: 'IBM Plex Mono', fontSize: 9, color: 'var(--text-muted)' }}>v1.0.0</div>
+                {onSwitchToConsumer && (
+                    <button
+                        onClick={onSwitchToConsumer}
+                        title="Switch to Consumer Mode"
+                        style={{
+                            background:   'transparent',
+                            border:       'none',
+                            color:        'var(--text-muted)',
+                            fontSize:     10,
+                            cursor:       'pointer',
+                            padding:      '2px 4px',
+                            borderRadius: 4,
+                            fontFamily:   'IBM Plex Mono',
+                            opacity:      0.5,
+                        }}
+                    >
+                        {'</>'}
+                    </button>
+                )}
             </div>
         </aside>
     )

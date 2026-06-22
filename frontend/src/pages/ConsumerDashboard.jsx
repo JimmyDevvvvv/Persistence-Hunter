@@ -21,8 +21,61 @@ const T = {
   textDim:     "#475569",
 };
 
+// Severity order for sorting
+const SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+
 // ---------------------------------------------------------------------------
-// Shield SVG — color changes with status
+// Normalize a realtime behavioral alert into the AlertCard shape
+// ---------------------------------------------------------------------------
+function normalizeRealtimeAlert(rt) {
+  const sev     = rt.severity || "critical";
+  const labels  = { critical: "Critical Threat", high: "Suspicious", medium: "Worth Reviewing", low: "Low Risk" };
+  const actions = { critical: "Block", high: "Block", medium: "Review", low: "Dismiss" };
+  const mitre   = (rt.mitre || []);
+
+  return {
+    severity:         sev,
+    severity_label:   labels[sev] || "Alert",
+    entry_type:       "realtime",
+    title:            rt.rule_name || rt.rule_id || "Behavioral threat detected",
+    what_it_is:       "This was caught in real time by the behavioral monitor — before it appeared in a scan.",
+    plain_reasons:    mitre.length > 0
+      ? [`MITRE techniques: ${mitre.join(", ")}`]
+      : ["A suspicious sequence of events was detected matching a known attack pattern."],
+    recommendation:   sev === "critical"
+      ? "Block this immediately. This matches a known malware attack chain."
+      : "Review this activity. Something unusual happened on your system.",
+    action_primary:   actions[sev] || "Review",
+    action_secondary: "Details",
+    score:            rt.threat_score || 0,
+    entry_name:       rt.rule_id || String(rt.id),
+    isLive:           true,
+    triggered_at:     rt.triggered_at,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Merge scan alerts + realtime alerts, dedup by entry_name
+// ---------------------------------------------------------------------------
+function mergeAlerts(scanAlerts, realtimeAlerts) {
+  const seen = new Set(scanAlerts.map(a => a.entry_name));
+  const merged = [...scanAlerts];
+
+  // Deduplicate realtime by rule_id (keep first / most recent)
+  const seenRt = new Set();
+  for (const rt of realtimeAlerts) {
+    const key = rt.entry_name;
+    if (seenRt.has(key) || seen.has(key)) continue;
+    seenRt.add(key);
+    merged.push(rt);
+  }
+
+  merged.sort((a, b) => (SEV_ORDER[a.severity] ?? 4) - (SEV_ORDER[b.severity] ?? 4));
+  return merged;
+}
+
+// ---------------------------------------------------------------------------
+// Shield SVG
 // ---------------------------------------------------------------------------
 function Shield({ color, size = 72, pulse = false }) {
   return (
@@ -50,7 +103,6 @@ function Shield({ color, size = 72, pulse = false }) {
         fill={color}
         fillOpacity="0.25"
       />
-      {/* checkmark or X based on color */}
       {color === T.green && (
         <polyline
           points="34,50 45,62 66,38"
@@ -100,7 +152,7 @@ function StatCard({ label, value, sub, accent }) {
 }
 
 // ---------------------------------------------------------------------------
-// Alert card (consumer-facing, plain English)
+// Alert card
 // ---------------------------------------------------------------------------
 function AlertCard({ alert, onBlock, onTrust }) {
   const [expanded, setExpanded] = useState(false);
@@ -125,12 +177,24 @@ function AlertCard({ alert, onBlock, onTrust }) {
       medium:   T.cyan,
       low:      T.textDim,
     }[alert.severity],
-    padding:      "3px 10px",
-    borderRadius: 20,
-    fontSize:     11,
-    fontWeight:   600,
+    padding:       "3px 10px",
+    borderRadius:  20,
+    fontSize:      11,
+    fontWeight:    600,
     letterSpacing: "0.05em",
     textTransform: "uppercase",
+  };
+
+  const liveBadge = {
+    background:    `${T.green}22`,
+    color:         T.green,
+    padding:       "3px 8px",
+    borderRadius:  20,
+    fontSize:      10,
+    fontWeight:    700,
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+    border:        `1px solid ${T.green}44`,
   };
 
   return (
@@ -144,8 +208,9 @@ function AlertCard({ alert, onBlock, onTrust }) {
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
             <span style={badgeStyle}>{alert.severity_label || alert.severity}</span>
+            {alert.isLive && <span style={liveBadge}>● LIVE</span>}
             <span style={{ fontSize: 13, color: T.textDim }}>{alert.entry_type}</span>
           </div>
           <div style={{ fontSize: 15, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>
@@ -155,24 +220,28 @@ function AlertCard({ alert, onBlock, onTrust }) {
             {alert.what_it_is}
           </div>
 
-          {expanded && alert.plain_reasons?.length > 0 && (
+          {expanded && (
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 12, color: T.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Why this is suspicious
-              </div>
-              {alert.plain_reasons.map((r, i) => (
-                <div key={i} style={{
-                  display:      "flex",
-                  alignItems:   "flex-start",
-                  gap:          8,
-                  marginBottom: 5,
-                  fontSize:     13,
-                  color:        T.textSub,
-                }}>
-                  <span style={{ color: T.amber, marginTop: 1 }}>›</span>
-                  {r}
-                </div>
-              ))}
+              {alert.plain_reasons?.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12, color: T.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Why this is suspicious
+                  </div>
+                  {alert.plain_reasons.map((r, i) => (
+                    <div key={i} style={{
+                      display:      "flex",
+                      alignItems:   "flex-start",
+                      gap:          8,
+                      marginBottom: 5,
+                      fontSize:     13,
+                      color:        T.textSub,
+                    }}>
+                      <span style={{ color: T.amber, marginTop: 1 }}>›</span>
+                      {r}
+                    </div>
+                  ))}
+                </>
+              )}
               <div style={{
                 marginTop:    12,
                 padding:      "10px 14px",
@@ -188,22 +257,25 @@ function AlertCard({ alert, onBlock, onTrust }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 110 }}>
-          <button
-            onClick={() => onBlock(alert)}
-            style={{
-              background:   alert.severity === "critical" ? T.red : T.cyan,
-              color:        "#fff",
-              border:       "none",
-              borderRadius: 8,
-              padding:      "9px 18px",
-              fontSize:     13,
-              fontWeight:   600,
-              cursor:       "pointer",
-              width:        "100%",
-            }}
-          >
-            {alert.action_primary || "Block"}
-          </button>
+          {/* Primary — Trust (adds hash/name exclusion so future scans skip it) */}
+          {!alert.isLive && (
+            <button
+              onClick={() => onTrust(alert)}
+              style={{
+                background:   alert.severity === "critical" ? T.red : T.cyan,
+                color:        "#fff",
+                border:       "none",
+                borderRadius: 8,
+                padding:      "9px 18px",
+                fontSize:     13,
+                fontWeight:   600,
+                cursor:       "pointer",
+                width:        "100%",
+              }}
+            >
+              {alert.action_primary || "Trust"}
+            </button>
+          )}
           <button
             onClick={() => setExpanded(e => !e)}
             style={{
@@ -226,68 +298,67 @@ function AlertCard({ alert, onBlock, onTrust }) {
 }
 
 // ---------------------------------------------------------------------------
-// Hero zone — the big status area at the top
+// Hero zone
 // ---------------------------------------------------------------------------
 function HeroZone({ status, summary, scanning, onScan }) {
   const config = {
     clean: {
-      color:   T.green,
-      label:   "You're Protected",
+      color:    T.green,
+      label:    "You're Protected",
       sublabel: summary || "No threats detected",
-      pulse:   false,
+      pulse:    false,
     },
     notice: {
-      color:   T.cyan,
-      label:   "Items to Review",
+      color:    T.cyan,
+      label:    "Items to Review",
       sublabel: summary || "Some items worth reviewing",
-      pulse:   false,
+      pulse:    false,
     },
     warning: {
-      color:   T.amber,
-      label:   "Attention Required",
+      color:    T.amber,
+      label:    "Attention Required",
       sublabel: summary || "Suspicious items found",
-      pulse:   true,
+      pulse:    true,
     },
     danger: {
-      color:   T.red,
-      label:   "Threat Detected",
+      color:    T.red,
+      label:    "Threat Detected",
       sublabel: summary || "Immediate action required",
-      pulse:   true,
+      pulse:    true,
     },
     error: {
-      color:   T.textDim,
-      label:   "Service Unavailable",
+      color:    T.textDim,
+      label:    "Service Unavailable",
       sublabel: "Persistence Hunter service is not running",
-      pulse:   false,
+      pulse:    false,
     },
   }[status] || {
-    color:   T.textDim,
-    label:   "Connecting...",
+    color:    T.textDim,
+    label:    "Connecting...",
     sublabel: "",
-    pulse:   false,
+    pulse:    false,
   };
 
   return (
     <div style={{
-      background:    `linear-gradient(135deg, ${T.surface} 0%, ${T.surfaceHigh} 100%)`,
-      border:        `1px solid ${T.border}`,
-      borderRadius:  16,
-      padding:       "40px 32px",
-      display:       "flex",
-      alignItems:    "center",
-      gap:           32,
-      marginBottom:  24,
-      position:      "relative",
-      overflow:      "hidden",
+      background:   `linear-gradient(135deg, ${T.surface} 0%, ${T.surfaceHigh} 100%)`,
+      border:       `1px solid ${T.border}`,
+      borderRadius: 16,
+      padding:      "40px 32px",
+      display:      "flex",
+      alignItems:   "center",
+      gap:          32,
+      marginBottom: 24,
+      position:     "relative",
+      overflow:     "hidden",
     }}>
-      {/* Background glow */}
       <div style={{
-        position:   "absolute",
-        top:        -60,
-        right:      -60,
-        width:      200,
-        height:     200,
-        background: `radial-gradient(circle, ${config.color}18 0%, transparent 70%)`,
+        position:      "absolute",
+        top:           -60,
+        right:         -60,
+        width:         200,
+        height:        200,
+        background:    `radial-gradient(circle, ${config.color}18 0%, transparent 70%)`,
         pointerEvents: "none",
       }} />
 
@@ -295,10 +366,10 @@ function HeroZone({ status, summary, scanning, onScan }) {
 
       <div style={{ flex: 1 }}>
         <div style={{
-          fontSize:   26,
-          fontWeight: 700,
-          color:      config.color,
-          marginBottom: 6,
+          fontSize:      26,
+          fontWeight:    700,
+          color:         config.color,
+          marginBottom:  6,
           letterSpacing: "-0.02em",
         }}>
           {scanning ? "Scanning..." : config.label}
@@ -334,23 +405,29 @@ function HeroZone({ status, summary, scanning, onScan }) {
 // Main consumer dashboard
 // ---------------------------------------------------------------------------
 export default function ConsumerDashboard({ onSwitchToAnalyst }) {
-  const [status,   setStatus]   = useState({ status: "clean", status_message: "", counts: {}, scanning: false });
-  const [alerts,   setAlerts]   = useState([]);
-  const [lastScan, setLastScan] = useState(null);
-  const [loading,  setLoading]  = useState(true);
-  const [rulesVer, setRulesVer] = useState("—");
+  const [status,     setStatus]     = useState({ status: "clean", status_message: "", counts: {} });
+  const [alerts,     setAlerts]     = useState([]);
+  const [lastScan,   setLastScan]   = useState(null);
+  const [loading,    setLoading]    = useState(true);
+  const [rulesVer,   setRulesVer]   = useState("—");
+  const [isScanning, setIsScanning] = useState(false);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      const [s, a, info] = await Promise.all([
+      const [statusRes, scanRes, rtRes] = await Promise.all([
         axios.get(`${API}/api/status`),
-        axios.get(`${API}/api/alerts`),
-        axios.get(`${API}/api/stats`).catch(() => ({ data: {} })),
+        axios.get(`${API}/api/alerts`).catch(() => ({ data: [] })),
+        axios.get(`${API}/api/alerts/realtime?limit=20`).catch(() => ({ data: { alerts: [] } })),
       ]);
-      setStatus(s.data);
-      setAlerts(a.data || []);
-      if (info.data?.last_scan)   setLastScan(info.data.last_scan);
-      if (info.data?.rules_version) setRulesVer(info.data.rules_version);
+
+      setStatus(statusRes.data);
+      // Both fields live on /api/status — no secondary /api/stats call needed
+      if (statusRes.data?.last_scan)    setLastScan(statusRes.data.last_scan);
+      if (statusRes.data?.rules_version) setRulesVer(statusRes.data.rules_version);
+
+      const scanAlerts = Array.isArray(scanRes.data) ? scanRes.data : [];
+      const rtAlerts   = (rtRes.data?.alerts || []).map(normalizeRealtimeAlert);
+      setAlerts(mergeAlerts(scanAlerts, rtAlerts));
     } catch {
       setStatus(prev => ({ ...prev, status: "error" }));
     } finally {
@@ -359,26 +436,54 @@ export default function ConsumerDashboard({ onSwitchToAnalyst }) {
   }, []);
 
   useEffect(() => {
-    fetchStatus();
-    const id = setInterval(fetchStatus, 10000);
+    fetchAll();
+    const id = setInterval(fetchAll, 10000);
     return () => clearInterval(id);
-  }, [fetchStatus]);
+  }, [fetchAll]);
 
   const handleScan = async () => {
+    if (isScanning) return;
+    setIsScanning(true);
     try {
-      await axios.post(`${API}/api/scan`);
-      setTimeout(fetchStatus, 1000);
+      // ScanRequest body required — all fields have defaults so {} is valid
+      const res = await axios.post(`${API}/api/scan`, {});
+      const jobId = res.data?.job_id;
+      if (!jobId) { setIsScanning(false); fetchAll(); return; }
+
+      // Poll /api/scan/status until the job completes (max 60 s)
+      const deadline = Date.now() + 60_000;
+      const poll = setInterval(async () => {
+        try {
+          const s = await axios.get(`${API}/api/scan/status?job_id=${jobId}`);
+          const done = s.data?.status === "done" || s.data?.status === "error";
+          if (done || Date.now() > deadline) {
+            clearInterval(poll);
+            setIsScanning(false);
+            fetchAll();
+          }
+        } catch {
+          clearInterval(poll);
+          setIsScanning(false);
+        }
+      }, 2000);
+    } catch {
+      setIsScanning(false);
+    }
+  };
+
+  // Trust = adds hash/name exclusion AND immediately zeroes the score in DB,
+  // so the alert vanishes on the next fetchAll() without waiting for a rescore.
+  const handleTrust = async (alert) => {
+    try {
+      await axios.post(
+        `${API}/api/entries/${alert.entry_type}/${encodeURIComponent(alert.entry_name)}/trust`
+      );
+      fetchAll();
     } catch {}
   };
 
-  const handleBlock = async (alert) => {
-    try {
-      await axios.post(`${API}/api/entries/${alert.entry_type}/${alert.entry_name}/block`);
-      fetchStatus();
-    } catch {}
-  };
-
-  const counts = status.counts || {};
+  const counts      = status.counts || {};
+  const liveCount   = alerts.filter(a => a.isLive).length;
   const totalThreats = (counts.critical || 0) + (counts.high || 0) + (counts.medium || 0);
 
   const lastScanLabel = lastScan
@@ -387,19 +492,19 @@ export default function ConsumerDashboard({ onSwitchToAnalyst }) {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, color: T.textDim, fontSize: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, color: T.textDim, fontSize: 14, background: T.bg, height: "100vh" }}>
         Connecting to service...
       </div>
     );
   }
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px", background: T.bg, minHeight: "100vh" }}>
       {/* Hero */}
       <HeroZone
         status   = {status.status}
         summary  = {status.status_message}
-        scanning = {status.scanning}
+        scanning = {isScanning}
         onScan   = {handleScan}
       />
 
@@ -418,8 +523,8 @@ export default function ConsumerDashboard({ onSwitchToAnalyst }) {
         />
         <StatCard
           label  = "Real-time"
-          value  = {status.status === "error" ? "Off" : "Active"}
-          accent = {status.status === "error" ? T.textDim : T.green}
+          value  = {status.status === "error" ? "Off" : liveCount > 0 ? `${liveCount} live` : "Active"}
+          accent = {status.status === "error" ? T.textDim : liveCount > 0 ? T.red : T.green}
         />
         <StatCard
           label  = "Rules"
@@ -433,21 +538,26 @@ export default function ConsumerDashboard({ onSwitchToAnalyst }) {
       {alerts.length > 0 && (
         <div>
           <div style={{
-            fontSize:     12,
-            fontWeight:   600,
-            color:        T.textDim,
-            textTransform:"uppercase",
-            letterSpacing:"0.08em",
-            marginBottom: 14,
+            fontSize:      12,
+            fontWeight:    600,
+            color:         T.textDim,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            marginBottom:  14,
           }}>
             Detections — {alerts.length} item{alerts.length !== 1 ? "s" : ""}
+            {liveCount > 0 && (
+              <span style={{ marginLeft: 10, color: T.green, fontWeight: 700 }}>
+                ● {liveCount} live
+              </span>
+            )}
           </div>
           {alerts.map((alert, i) => (
             <AlertCard
-              key     = {i}
+              key     = {`${alert.entry_name}-${i}`}
               alert   = {alert}
-              onBlock = {handleBlock}
-              onTrust = {() => {}}
+              onBlock = {handleTrust}
+              onTrust = {handleTrust}
             />
           ))}
         </div>
@@ -464,21 +574,21 @@ export default function ConsumerDashboard({ onSwitchToAnalyst }) {
         </div>
       )}
 
-      {/* Analyst mode hint — subtle, bottom right */}
+      {/* Analyst mode switch — subtle, bottom right */}
       <div style={{ marginTop: 40, display: "flex", justifyContent: "flex-end" }}>
         <button
           onClick    = {onSwitchToAnalyst}
           title      = "Switch to Analyst Mode"
           style={{
-            background:   "transparent",
-            border:       "none",
-            color:        T.textDim,
-            fontSize:     12,
-            cursor:       "pointer",
-            padding:      "6px 10px",
-            borderRadius: 6,
-            fontFamily:   "monospace",
-            letterSpacing:"0.05em",
+            background:    "transparent",
+            border:        "none",
+            color:         T.textDim,
+            fontSize:      12,
+            cursor:        "pointer",
+            padding:       "6px 10px",
+            borderRadius:  6,
+            fontFamily:    "monospace",
+            letterSpacing: "0.05em",
           }}
         >
           {"</>"}

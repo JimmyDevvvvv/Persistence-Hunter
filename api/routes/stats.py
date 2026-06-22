@@ -56,10 +56,13 @@ def get_stats():
         sysmon   = count("sysmon_process_events") + count("sysmon_registry_events")
         proc4688 = count("process_events")
 
-        bl_row = conn.execute(
-            "SELECT id FROM baselines ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        bl_id = bl_row[0] if bl_row else None
+        try:
+            bl_row = conn.execute(
+                "SELECT id FROM baselines ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            bl_id = bl_row[0] if bl_row else None
+        except Exception:
+            bl_id = None
 
         def new_count(table, et):
             if bl_id is None:

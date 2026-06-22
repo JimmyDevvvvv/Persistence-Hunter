@@ -6,7 +6,7 @@ import { useLocation } from 'react-router-dom'
 // Pages that want full-height no-padding layout (their own internal layout)
 const FULL_HEIGHT_ROUTES = ['/alerts', '/entries/']
 
-export function Layout({ children, onScan, scanJob }) {
+export function Layout({ children, onScan, scanJob, onSwitchToConsumer }) {
     const { pathname } = useLocation()
     const isFullHeight = FULL_HEIGHT_ROUTES.some(r => pathname.startsWith(r)) || pathname === '/alerts'
 
@@ -17,7 +17,7 @@ export function Layout({ children, onScan, scanJob }) {
 
     return (
         <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg-base)' }}>
-            <Sidebar />
+            <Sidebar onSwitchToConsumer={onSwitchToConsumer} />
             <div className="flex flex-col flex-1 overflow-hidden">
                 <TopBar onScan={onScan} scanJob={scanJob} />
                 <main
