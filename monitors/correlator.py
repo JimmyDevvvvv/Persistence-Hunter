@@ -39,10 +39,45 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import json
 import time
 from collections import deque
 from pathlib import Path
+
+# Ensure repo root is on sys.path so core.exclusion_engine is importable
+_CORR_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _CORR_ROOT not in sys.path:
+    sys.path.insert(0, _CORR_ROOT)
+
+try:
+    from core.exclusion_engine import load_exclusion_set as _load_excl_set
+    _EXCL_AVAILABLE = True
+except ImportError:
+    _EXCL_AVAILABLE = False
+
+# Default DB path (overridden by ETWMonitor when it knows the real path)
+_EXCL_DB_PATH: str = os.path.join(_CORR_ROOT, "reghunt.db")
+
+# Exclusion set cache: refreshed every 30 s so the correlator reacts to
+# newly-added exclusions without restarting.
+_EXCL_CACHE: dict = {}
+_EXCL_CACHE_TS: float = 0.0
+_EXCL_CACHE_TTL: float = 30.0
+
+
+def _get_excl_set() -> dict:
+    global _EXCL_CACHE, _EXCL_CACHE_TS
+    if not _EXCL_AVAILABLE:
+        return {"paths": [], "processes": set(), "rules": set(), "paused": False}
+    now = time.monotonic()
+    if now - _EXCL_CACHE_TS > _EXCL_CACHE_TTL:
+        try:
+            _EXCL_CACHE = _load_excl_set(_EXCL_DB_PATH)
+        except Exception:
+            _EXCL_CACHE = {"paths": [], "processes": set(), "rules": set(), "paused": False}
+        _EXCL_CACHE_TS = now
+    return _EXCL_CACHE
 
 # ---------------------------------------------------------------------------
 # Legitimate app directories — keep in sync with core/threat_scorer.py
@@ -302,6 +337,8 @@ class EventCorrelator:
         window_events = [e for _, e in self._buf]
         fired: list   = []
 
+        excl = _get_excl_set()
+
         for rule in self.rules:
             rule_id  = rule.get("id", "")
             cooldown = float(rule.get("window_seconds", self.window))
@@ -309,11 +346,27 @@ class EventCorrelator:
             if time.time() - self._last_fired.get(rule_id, 0.0) < cooldown:
                 continue
 
+            # Exclusion checks — skip silently
+            if excl["paused"]:
+                continue
+            if rule_id.lower() in excl["rules"]:
+                continue
+
             matched, confidence = self._try_match(rule, window_events)
-            if matched is not None:
-                self._last_fired[rule_id] = time.time()
-                fired.append(
-                    {**rule, "matched_events": matched, "confidence": confidence}
-                )
+            if matched is None:
+                continue
+
+            # Check if the anchor process path is excluded
+            anchor_path = (matched[0].get("path") or "").lower()
+            if any(anchor_path.startswith(pfx) for pfx in excl["paths"]):
+                continue
+            anchor_proc = (matched[0].get("process") or "").lower()
+            if anchor_proc and anchor_proc in excl["processes"]:
+                continue
+
+            self._last_fired[rule_id] = time.time()
+            fired.append(
+                {**rule, "matched_events": matched, "confidence": confidence}
+            )
 
         return fired

@@ -1,9 +1,16 @@
 """api/routes/entries.py — /api/entries"""
 
+import sys
+import os
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
 import json
 from typing import Optional, Literal
 from fastapi import APIRouter, HTTPException, Query
-from api.dependencies import get_db, row_to_dict
+from api.dependencies import get_db, DB_PATH, row_to_dict
 
 router = APIRouter()
 
@@ -113,3 +120,74 @@ def get_entry(entry_type: str, entry_id: int):
         return entry
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Trust endpoint — "Trust this" consumer UI button
+# ---------------------------------------------------------------------------
+
+_TABLE_MAP_TRUST = {
+    "registry": ("registry_entries", "name",         "value_data"),
+    "task":     ("task_entries",     "task_name",    "command"),
+    "service":  ("service_entries",  "service_name", "binary_path"),
+}
+
+
+@router.post("/{entry_type}/{entry_name}/trust")
+def trust_entry(entry_type: str, entry_name: str):
+    """
+    Mark an entry as trusted by adding a hash exclusion for its binary.
+    If the binary cannot be resolved or hashed, falls back to a process-name
+    exclusion so the entry is still suppressed on the next scoring run.
+    """
+    spec = _TABLE_MAP_TRUST.get(entry_type)
+    if not spec:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown entry type: {entry_type}")
+    table, name_col, value_col = spec
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            f"SELECT * FROM {table} WHERE {name_col}=? LIMIT 1",
+            (entry_name,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404,
+                            detail=f"Entry '{entry_name}' not found")
+
+    value     = row[value_col] or ""
+    excl_type = "process"
+    excl_value = entry_name
+    method     = "process-name"
+
+    # Try to resolve a binary hash — gives a stronger, rename-proof exclusion
+    try:
+        from enrichment.local import _extract_exe_path, _file_sha256
+        exe_path = _extract_exe_path(value)
+        if exe_path:
+            fhash = _file_sha256(exe_path)
+            if fhash:
+                excl_type  = "hash"
+                excl_value = fhash
+                method     = f"hash:{exe_path}"
+    except Exception:
+        pass
+
+    from core.exclusion_engine import add_exclusion
+    new_id = add_exclusion(
+        excl_type=excl_type,
+        value=excl_value,
+        label=entry_name,
+        expires_minutes=None,   # permanent
+        db_path=DB_PATH,
+    )
+    return {
+        "id":     new_id,
+        "label":  entry_name,
+        "method": method,
+        "status": "trusted",
+    }

@@ -7,7 +7,8 @@ from api.routes import (
     stats, entries, chains, scan,
     alerts, baseline, search, export,
 )
-from api.routes.scores import router as scores_router
+from api.routes.scores     import router as scores_router
+from api.routes.exclusions import router as exclusions_router
 
 
 # ---------------------------------------------------------------------------
@@ -62,4 +63,5 @@ app.include_router(alerts.router,     prefix="/api/alerts",    tags=["Alerts"])
 app.include_router(baseline.router,   prefix="/api/baseline",  tags=["Baseline"])
 app.include_router(search.router,     prefix="/api/search",    tags=["Search"])
 app.include_router(export.router,     prefix="/api/export",    tags=["Export"])
-app.include_router(scores_router,     prefix="/api/scores",    tags=["Scores"])
+app.include_router(scores_router,     prefix="/api/scores",       tags=["Scores"])
+app.include_router(exclusions_router, prefix="/api/exclusions",   tags=["Exclusions"])

@@ -41,6 +41,12 @@ try:
 except ImportError:
     _ENRICHMENT_AVAILABLE = False
 
+try:
+    from core.exclusion_engine import is_excluded as _is_excluded
+    _EXCLUSIONS_AVAILABLE = True
+except ImportError:
+    _EXCLUSIONS_AVAILABLE = False
+
 DB_PATH  = "reghunt.db"
 SIG_PATH = Path(__file__).parent.parent / "rules" / "apt_signatures.json"
 
@@ -906,6 +912,17 @@ def score_all(db_path: str = DB_PATH, verbose: bool = True) -> int:
 
         result = score_entry(entry, chain, enrichment, sigs)
 
+        # Exclusion check — zero the score and note reason, but still store row
+        excl_reason = ""
+        if _EXCLUSIONS_AVAILABLE:
+            excl, excl_reason = _is_excluded(entry, result, db_path=db_path)
+            if excl:
+                result["score"] = 0
+                result["breakdown"].insert(
+                    0, {"factor": "excluded", "weight": 0,
+                        "note": f"Excluded: {excl_reason}"}
+                )
+
         conn.execute("""
             INSERT OR REPLACE INTO threat_scores
                 (entry_type, entry_id, score, breakdown_json,
@@ -932,8 +949,9 @@ def score_all(db_path: str = DB_PATH, verbose: bool = True) -> int:
             name    = entry.get(name_col, "?")
             apts    = [m["name"] for m in result["apt_matches"]]
             apt_str = f" -> APT: {', '.join(apts[:2])}" if apts else ""
+            excl_tag = f" [EXCLUDED:{excl_reason}]" if excl_reason else ""
             print(f"  [{result['score']:3d}] [{entry_type:8s}] "
-                  f"{name[:40]}{apt_str}")
+                  f"{name[:40]}{apt_str}{excl_tag}")
 
     conn.close()
     t_total = time.perf_counter() - t_start
