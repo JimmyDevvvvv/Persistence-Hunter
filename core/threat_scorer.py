@@ -27,11 +27,19 @@ Changes from original:
 from __future__ import annotations
 
 import os
+import re
+import time
 import json
 import sqlite3
 import argparse
 from pathlib import Path
 from typing import List, Dict, Optional
+
+try:
+    from enrichment.local import batch_check_signatures, _extract_exe_path
+    _ENRICHMENT_AVAILABLE = True
+except ImportError:
+    _ENRICHMENT_AVAILABLE = False
 
 DB_PATH  = "reghunt.db"
 SIG_PATH = Path(__file__).parent.parent / "rules" / "apt_signatures.json"
@@ -810,7 +818,19 @@ def _ensure_score_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _value_for_entry(entry: dict) -> str:
+    """Return the persistence value string from an entry dict."""
+    return (
+        entry.get("value_data") or
+        entry.get("command")    or
+        entry.get("binary_path") or
+        ""
+    )
+
+
 def score_all(db_path: str = DB_PATH, verbose: bool = True) -> int:
+    t_start = time.perf_counter()
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     _ensure_score_table(conn)
@@ -821,8 +841,9 @@ def score_all(db_path: str = DB_PATH, verbose: bool = True) -> int:
         ("task",     "task_entries",     "task_name"),
         ("service",  "service_entries",  "service_name"),
     ]
-    total_scored = 0
 
+    # ── Pass 1: collect all entries ──────────────────────────────────────────
+    all_entries: list = []    # list of (entry_type, name_col, entry_dict)
     for entry_type, table, name_col in tables:
         try:
             rows = conn.execute(f"SELECT * FROM {table}").fetchall()
@@ -831,45 +852,93 @@ def score_all(db_path: str = DB_PATH, verbose: bool = True) -> int:
                 print(f"  [!] Table {table} not found — skipping")
             continue
         for row in rows:
-            entry              = dict(row)
+            entry               = dict(row)
             entry["entry_type"] = entry_type
-            chain              = _load_chain(conn, entry_type, entry["id"])
-            chain              = enrich_chain_with_hashes(chain, conn)
-            enrichment         = _load_enrichment(conn, entry_type, entry["id"])
-            result             = score_entry(entry, chain, enrichment, sigs)
+            all_entries.append((entry_type, name_col, entry))
 
-            conn.execute("""
-                INSERT OR REPLACE INTO threat_scores
-                    (entry_type, entry_id, score, breakdown_json,
-                     apt_json, risk_json, scored_at)
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-            """, (
-                entry_type, entry["id"],
-                result["score"],
-                json.dumps(result["breakdown"]),
-                json.dumps(result["apt_matches"]),
-                json.dumps(result["risk_indicators"]),
-            ))
+    # ── Pass 2: batch PE signature check ────────────────────────────────────
+    pe_cache: dict = {}
+    n_cached = n_fresh = 0
 
-            if chain:
-                conn.execute("""
-                    UPDATE attack_chains SET chain_json = ?
-                    WHERE  entry_type = ? AND entry_id = ?
-                """, (json.dumps(chain), entry_type, entry["id"]))
+    if _ENRICHMENT_AVAILABLE and all_entries:
+        exe_paths = []
+        for _, _, entry in all_entries:
+            v = _value_for_entry(entry)
+            p = _extract_exe_path(v)
+            if p:
+                exe_paths.append(p)
+        # Deduplicate while preserving order (Python 3.7+ dict trick)
+        unique_paths = list(dict.fromkeys(exe_paths))
 
-            conn.commit()
-            total_scored += 1
-
+        if unique_paths:
+            t_sig = time.perf_counter()
+            pe_cache, n_cached, n_fresh = batch_check_signatures(
+                unique_paths, db_path=db_path
+            )
+            t_sig_done = time.perf_counter()
             if verbose:
-                name    = entry.get(name_col, "?")
-                apts    = [m["name"] for m in result["apt_matches"]]
-                apt_str = f" -> APT: {', '.join(apts[:2])}" if apts else ""
-                print(f"  [{result['score']:3d}] [{entry_type:8s}] "
-                      f"{name[:40]}{apt_str}")
+                print(
+                    f"[+] Signature check: {len(unique_paths)} binaries | "
+                    f"{n_cached} cached / {n_fresh} fresh | "
+                    f"{t_sig_done - t_sig:.2f}s"
+                )
+
+    pe_cache_lower = {k.lower(): v for k, v in pe_cache.items()}
+
+    # ── Pass 3: score every entry ────────────────────────────────────────────
+    total_scored = 0
+    for entry_type, name_col, entry in all_entries:
+        chain      = _load_chain(conn, entry_type, entry["id"])
+        chain      = enrich_chain_with_hashes(chain, conn)
+
+        # Build enrichment from pre-fetched PE data (or fall back to DB cache)
+        v        = _value_for_entry(entry)
+        exe_path = _extract_exe_path(v) if _ENRICHMENT_AVAILABLE else None
+        if exe_path and exe_path.lower() in pe_cache_lower:
+            sig        = pe_cache_lower[exe_path.lower()]
+            enrichment = {
+                "pe_is_pe":  True,
+                "pe_signed": sig["signed"],
+                "pe_vendor": sig["publisher"],
+            }
+        else:
+            enrichment = _load_enrichment(conn, entry_type, entry["id"])
+
+        result = score_entry(entry, chain, enrichment, sigs)
+
+        conn.execute("""
+            INSERT OR REPLACE INTO threat_scores
+                (entry_type, entry_id, score, breakdown_json,
+                 apt_json, risk_json, scored_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        """, (
+            entry_type, entry["id"],
+            result["score"],
+            json.dumps(result["breakdown"]),
+            json.dumps(result["apt_matches"]),
+            json.dumps(result["risk_indicators"]),
+        ))
+
+        if chain:
+            conn.execute("""
+                UPDATE attack_chains SET chain_json = ?
+                WHERE  entry_type = ? AND entry_id = ?
+            """, (json.dumps(chain), entry_type, entry["id"]))
+
+        conn.commit()
+        total_scored += 1
+
+        if verbose:
+            name    = entry.get(name_col, "?")
+            apts    = [m["name"] for m in result["apt_matches"]]
+            apt_str = f" -> APT: {', '.join(apts[:2])}" if apts else ""
+            print(f"  [{result['score']:3d}] [{entry_type:8s}] "
+                  f"{name[:40]}{apt_str}")
 
     conn.close()
+    t_total = time.perf_counter() - t_start
     if verbose:
-        print(f"\n[+] Scored {total_scored} entries")
+        print(f"\n[+] Scored {total_scored} entries in {t_total:.2f}s")
     return total_scored
 
 
